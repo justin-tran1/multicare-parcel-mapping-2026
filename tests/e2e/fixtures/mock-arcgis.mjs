@@ -157,8 +157,15 @@ function esriPage(features, params, propsOf, pageSize) {
  * Returns a log of requests per layer.
  */
 export async function installMockArcGIS(page, { parcels = makeParcels(), fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0 } = {}) {
-  const log = { tacoma: [], pierce: [], wa: [], tiles: 0, other: [] };
+  const log = { tacoma: [], pierce: [], wa: [], tiles: 0, other: [], blocked: [] };
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+
+  // Tests must never reach a real service. Any ArcGIS REST host that is not explicitly
+  // mocked below answers with a failure (routes registered later take precedence).
+  await page.route(/\/rest\/services\//, (route) => {
+    log.blocked.push(route.request().url());
+    return json(route, { error: { code: 503, message: 'unmocked service blocked by test fixture' } }, 503);
+  });
 
   const handler = (key, url, info, propsOf, esri = false, pageSize = 1000) => async (route, request) => {
     const params = parseParams(request);

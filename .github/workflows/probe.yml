@@ -1,0 +1,32 @@
+name: Probe data sources
+
+# Checks every parcel data provider layer from a machine with internet access: metadata,
+# field mapping, a sample query and CORS headers. Read the job log or download the
+# probe-report artifact. Runs weekly and on demand; it never fails the build.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+  push:
+    paths:
+      - js/providers.js
+      - js/fields.js
+      - scripts/probe-providers.mjs
+      - .github/workflows/probe.yml
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/probe-providers.mjs
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-report
+          path: probe-report.json
+          retention-days: 30
