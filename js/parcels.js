@@ -174,11 +174,15 @@ function extractAttrs(props, prep, source) {
       out._sourceFields.use_description = `${m.use_code} (domain)`;
     }
   }
-  // Situs address stored as components (number, direction, street, suffix, unit).
-  if (!out.situs_address && Array.isArray(source.situsCompose)) {
+  // Situs address stored as components (number, direction, street, suffix, unit): the
+  // composed address takes precedence over any single heuristically matched field.
+  if (Array.isArray(source.situsCompose)) {
     const parts = source.situsCompose.map((f) => cleanText(getField(props, f))).filter(Boolean);
-    out.situs_address = parts.join(' ').replace(/\s+/g, ' ').trim();
-    if (out.situs_address) out._sourceFields.situs_address = source.situsCompose.join(' + ');
+    const composed = parts.join(' ').replace(/\s+/g, ' ').trim();
+    if (composed) {
+      out.situs_address = composed;
+      out._sourceFields.situs_address = source.situsCompose.join(' + ');
+    }
   }
   if (source.linkIdField) out._linkId = cleanText(getField(props, source.linkIdField));
   // Some assessors split owner into organisation / last / first / middle name fields.
@@ -192,7 +196,10 @@ function extractAttrs(props, prep, source) {
     if (out.owner) out._sourceFields.owner = [c.org, c.last, c.first, c.middle].filter(Boolean).join(' / ');
   }
   for (const [attr, spec] of Object.entries(source.computed || {})) {
-    if (out[attr] === null || out[attr] === undefined || out[attr] === '') {
+    // A computed value beats a heuristically matched field (e.g. one of several land value
+    // components) but never a field the provider named explicitly.
+    const empty = out[attr] === null || out[attr] === undefined || out[attr] === '';
+    if (empty || prep.how?.[attr] === 'heuristic') {
       if (spec.sum) {
         const v = sumFields(props, spec.sum);
         if (v !== null) {
@@ -244,7 +251,7 @@ function useCodeText(provider, attrs) {
   const code = attrs.use_code;
   if (!code) return '';
   // Some layers store "91 Undeveloped Land" (code and description in one string)
-  const combined = String(code).match(/^(\d{1,4})\s*[-:]?\s+([A-Za-z].*)$/);
+  const combined = String(code).match(/^\(?(\d{1,4})\)?\s*[-:]?\s+([A-Za-z].*)$/);
   if (combined) return `${combined[2].trim()} (${combined[1]})`;
   if (provider.useCodeScheme === 'dor' || provider.useCodeScheme === 'dor-prefix') {
     const d = decodeDOR(code);
@@ -415,15 +422,20 @@ export class ParcelService {
     const countyJobs = counties.map(async (county) => {
       const provider = this.providerFor(county);
       if (provider) {
-        const ok = await this.runProvider(provider, bbox, county, records, report, signal);
-        if (ok) return { county, ok: true };
+        const added = await this.runProvider(provider, bbox, county, records, report, signal);
+        // A provider that answered with no parcels at all (a city-limited layer, a stale
+        // extract) is treated as unavailable so the statewide layer can fill the area.
+        if (added !== false && added > 0) return { county, ok: true };
       }
       return { county, ok: false };
     });
     const results = await Promise.all(countyJobs);
     const needStatewide = results.filter((r) => !r.ok).map((r) => r.county);
     if (needStatewide.length || counties.length === 0) {
-      await this.runProvider(this.statewide, bbox, null, records, report, signal, counties.length ? new Set(needStatewide.map((c) => c.toLowerCase())) : null);
+      const r = await this.runProvider(this.statewide, bbox, null, records, report, signal, counties.length ? new Set(needStatewide.map((c) => c.toLowerCase())) : null);
+      if (r === false && !statuses.some((s) => s.ok && s.role === 'primary')) {
+        // nothing answered anywhere; surfaces as "unavailable" in the UI via statuses
+      }
     }
     return { records: [...records.values()], statuses, counties };
   }
@@ -439,10 +451,20 @@ export class ParcelService {
       try {
         const prep = await prepareSource(source, { signal });
         const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ['*'] });
-        primary = source;
-        primaryPrep = prep;
-        primaryFC = fc;
-        break;
+        if (!fc.features.length && !primary) {
+          // keep as a last resort but try the next geometry source for actual coverage
+          primary = source;
+          primaryPrep = prep;
+          primaryFC = fc;
+          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: 'primary', count: 0, county, confidence: source.confidence, fieldMap: prep.fieldMap, note: 'no parcels in this area' });
+          continue;
+        }
+        if (fc.features.length) {
+          primary = source;
+          primaryPrep = prep;
+          primaryFC = fc;
+          break;
+        }
       } catch (err) {
         if (isAbort(err) || signal?.aborted) throw err;
         errors.push({ source: source.name, url: source.url, error: err.message || String(err) });
@@ -502,22 +524,24 @@ export class ParcelService {
         added += 1;
       }
     }
-    report({
-      provider: provider.key,
-      providerName: provider.name,
-      source: primary.name,
-      url: primary.url,
-      ok: true,
-      role: 'primary',
-      count: added,
-      truncated: primaryFC.truncated,
-      fieldMap: primaryPrep.fieldMap,
-      how: primaryPrep.how,
-      layerName: primaryPrep.info.name,
-      county,
-      errors,
-      confidence: primary.confidence,
-    });
-    return true;
+    if (primaryFC.features.length) {
+      report({
+        provider: provider.key,
+        providerName: provider.name,
+        source: primary.name,
+        url: primary.url,
+        ok: true,
+        role: 'primary',
+        count: added,
+        truncated: primaryFC.truncated,
+        fieldMap: primaryPrep.fieldMap,
+        how: primaryPrep.how,
+        layerName: primaryPrep.info.name,
+        county,
+        errors,
+        confidence: primary.confidence,
+      });
+    }
+    return added;
   }
 }

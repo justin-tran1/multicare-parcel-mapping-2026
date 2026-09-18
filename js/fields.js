@@ -31,7 +31,7 @@ const HEURISTICS = {
   },
   owner: {
     include: /(taxpayer|owner|ownr|deed_?holder|tax_?payer)/i,
-    exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|_id$|\bid$|date|dt$|url|link)/i,
+    exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of)/i,
     prefer: /name/i,
     deprioritize: /[2-9]$/,
   },
@@ -40,8 +40,8 @@ const HEURISTICS = {
     exclude: /(city|state|zip)/i,
   },
   situs_address: {
-    include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr)/i,
-    exclude: /(owner|taxpayer|mail|city|state|zip|_no$|number|num$|dir|suffix|prefix|unit|type|link|url)/i,
+    include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr|physical_?addr)/i,
+    exclude: /(owner|taxpayer|mail|deed|holder|purchaser|kctp|city|state|zip|_no$|number|num$|dir|suffix|prefix|unit|type|link|url|_st$|_sub$|hs_?num|bldg)/i,
     prefer: /(situs_?addr(ess)?$|full|site_?addr(ess)?$|addr_?full)/i,
   },
   situs_city: {
@@ -50,7 +50,7 @@ const HEURISTICS = {
   },
   taxable_value: {
     include: /(taxable|tax_?val|taxval|tax_?value|tx_?val)/i,
-    exclude: /(land|impr|improv|bldg|building|prev|prior|year|yr|desc|code|status|flag|pct|rate|_dt|date)/i,
+    exclude: /(land|impr|improv|bldg|building|prev|prior|year|yr|desc|code|status|stat$|flag|pct|rate|_dt|date|rsn|reason|ind$|exempt|adj)/i,
     prefer: /(total|ttl|tot|taxable_?value|taxable_?val)/i,
   },
   land_value: {
@@ -78,7 +78,7 @@ const HEURISTICS = {
     // GIS_AREA, LAND_AREA) are in the layer's native units and are deliberately excluded;
     // acreage is computed from the geometry instead.
     include: /(sq_?ft|sqft|square_?f|lot_?size|lotsz|land_?sf|area_?sf|lot_?sq)/i,
-    exclude: /(bldg|building|impr|improv|living|gross_?bldg|floor|footprint|nra|gla|desc|code)/i,
+    exclude: /(bldg|building|impr|improv|living|gross_?bldg|floor|footprint|nra|gla|desc|code|garage|basement|attic|porch|deck|finished|unfinished|carport|shop|barn|res_?sq|house)/i,
     prefer: /(lot|land|parcel|legal|deeded)/i,
   },
   use_code: {
@@ -122,7 +122,8 @@ const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value',
 
 /**
  * @param {{fields: {name, alias, type}[]}} layerInfo
- * @param {Record<string, string[]>} candidates provider-supplied candidate field names per attribute
+ * @param {Record<string, string[]|false>} candidates provider-supplied candidate field names per
+ *   attribute; `false` disables the attribute for this layer (no candidates, no heuristics)
  * @returns {{ map: Record<string,string|null>, how: Record<string,string> }}
  */
 export function resolveFieldMap(layerInfo, candidates = {}) {
@@ -136,6 +137,11 @@ export function resolveFieldMap(layerInfo, candidates = {}) {
   for (const attr of ATTRS) {
     let chosen = null;
     let method = null;
+    if (candidates[attr] === false) {
+      map[attr] = null;
+      how[attr] = 'disabled';
+      continue;
+    }
     for (const cand of candidates[attr] || []) {
       const f = byLower.get(String(cand).toLowerCase()) || byAliasLower.get(String(cand).toLowerCase());
       if (f && !used.has(f.name)) {
@@ -152,7 +158,11 @@ export function resolveFieldMap(layerInfo, candidates = {}) {
         let s = score(f, HEURISTICS[attr]);
         if (s && VALUE_ATTRS.has(attr)) {
           if (NUMERIC_TYPES.has(f.type)) s += 10;
-          else if (f.type === 'esriFieldTypeString') s -= 5;
+          else if (f.type === 'esriFieldTypeString') {
+            // short strings are flags/codes (e.g. TAXABLE = "Y"), never dollar or acre values
+            if (f.length && f.length <= 5) continue;
+            s -= 5;
+          }
         }
         if (s > bestScore) {
           bestScore = s;

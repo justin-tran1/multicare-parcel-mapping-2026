@@ -49,7 +49,8 @@ async function getJson(url, ms = TIMEOUT) {
   const t = setTimeout(() => ctrl.abort(), ms);
   const started = Date.now();
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
+    // Send an Origin header so the CORS response header reflects what a browser would see.
+    const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json', Origin: 'https://example.github.io', Referer: 'https://example.github.io/' } });
     const cors = res.headers.get('access-control-allow-origin');
     const text = await res.text();
     let json;
@@ -82,14 +83,19 @@ async function probeSource(provider, source) {
     if (info.geometryType || source.enrich) {
       const pt = samplePoint(provider.counties[0] === '*' ? 'Pierce' : provider.counties[0]);
       const bbox = circleBBox(pt, 400);
+      // A tiny envelope keeps the sample small without pagination parameters, which some
+      // MapServer layers reject ("Pagination is not supported").
+      const small = circleBBox(pt, 40);
       const q = new URLSearchParams({
-        where: '1=1', geometry: bbox.join(','), geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
-        outFields: '*', returnGeometry: 'false', resultRecordCount: '3', f: 'json',
+        where: '1=1', geometry: small.join(','), geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+        outFields: '*', returnGeometry: 'false', f: 'json',
       });
       const qr = await getJson(`${source.url}/query?${q}`);
       out.queryMs = qr.ms;
       out.sampleCount = (qr.json.features || []).length;
-      const first = qr.json.features?.[0]?.attributes;
+      // prefer a feature with a parcel number (some layers carry empty placeholder rows)
+      const feats = qr.json.features || [];
+      const first = (feats.find((f) => map.parcel_id && f.attributes?.[map.parcel_id]) || feats[0])?.attributes;
       if (first) {
         out.sample = Object.fromEntries(Object.entries(map).filter(([, v]) => v).map(([k, v]) => [k, first[v] ?? first[Object.keys(first).find((f) => f.toLowerCase() === v.toLowerCase())]]));
         for (const [attr, spec] of Object.entries(source.computed || {})) {

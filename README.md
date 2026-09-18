@@ -71,31 +71,35 @@ mapping actually used is shown in the sidebar.
 
 | County | Primary layer | Owner | Taxable value | Acres | Use | Verification |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pierce | City of Tacoma *Pierce County Tax Parcels (with ATS Info)* + Pierce County *Tax Parcels* (joined for land-use description) | TAXPAYERNAME | TaxableValue (current or prior year) | LandGrossAcres | Use_Code + Landuse_Description | confirmed |
-| King | King County *PARCEL_ADDRESS_PUB_AREA* (ArcGIS Online), then *parcel_address_area* | KCTP_NAME | TAX_LNDVAL + TAX_IMPR | KCA_ACRES | PREUSE_DESC | confirmed |
-| Snohomish | Snohomish County Open Data *Parcels* (ArcGIS Online), then *Cadastral/Tax_Parcels* | TAXPRNAME / OWNERNAME | market total MKTTL (*) | TAB_ACRES | USECODE | confirmed |
+| Pierce | City of Tacoma *Pierce County Tax Parcels (with ATS Info)* when reachable, else Pierce County *Tax Parcels* (also joined for land-use description) | TAXPAYERNAME (Tacoma layer); Business_Name only on the county layer (‡) | TaxableValue / Taxable_Value | LandGrossAcres / Land_Acres | Landuse_Description | confirmed (county), likely (Tacoma host) |
+| King | King County GIS *parcel_address_area*, then the ArcGIS Online copy (no owner names) | KCTP_NAME | TAX_LNDVAL + TAX_IMPR | KCA_ACRES | PREUSE_DESC | confirmed |
+| Snohomish | Snohomish County Open Data *Parcels* (ArcGIS Online), then *Cadastral/Tax_Parcels* | TAXPRNAME / OWNERNAME | market total MKTTL (*) | TAB_ACRES | USECODE (code + text) | confirmed |
 | Spokane | Spokane County Open Data *Parcels* (ArcGIS Online) + SCOUT *PropertyLookup* join for owner | owner_name (SCOUT join) | taxable_amt | acreage | prop_use_desc | confirmed |
-| Thurston | Thurston GeoData *Thurston_Parcels* | not published | TAXABLE | TOTAL_ACRE | CURR_USE / PROP_TYPE | confirmed |
+| Thurston | Thurston County Enterprise *Parcel Boundaries* + State join for land use | OWNER_NAME | market TOTAL_VALUE (*); TAXABLE is a flag | TOTAL_ACRES | DOR code via State join | confirmed |
 | Yakima | Yakima County Assessor *Taxlots* | ORG_NAME or LAST/FIRST | market MKT_LAND + MKT_IMPVT (*) | ACRES | USE_CODE (code + text) | confirmed |
-| Kitsap | Kitsap County hosted *Parcels* / Kitsap Public Health *KitsapParcelsPub* | resolved at run time | resolved at run time | POLY_ACRES | resolved at run time | guess |
-| Clark | Clark County *TaxlotsforPublicUse* | MainOwnerI | TaxTotVal | GISAc | resolved at run time | confirmed |
-| Whatcom | Whatcom County *WhatcomCo_Property* Public Tax Parcels | tax_payer_name_full | taxable_val_total | legal_acreage | property_use_description | confirmed |
-| Skagit | Skagit County *Tax_Parcels* | OwnerName | TaxableValue | Acres | LandUse | confirmed |
-| Cowlitz | Cowlitz County *Cadastral/Parcels* | DEED_HOLDER_NAME | TAXABLE_VALUE | ACRES_TOTAL | USE_CODE_DESCRIPTION | confirmed |
-| Clallam | Clallam County *ParcelMap* + State layer join for values | OWN_LAST, OWN_FIRST | market (*) via State join | ACRES_GIS | PRC_CLASS | confirmed |
-| Mason, Chelan, Island | County parcel layers + State layer join for values, 2021 DAHP compilation join for owner names where the county layer has none | varies (flagged) | market (*) | varies | varies | confirmed / likely |
-| Grays Harbor | State layer + 2021 DAHP compilation join for owner names | OWNER (2021, flagged) | market (*) | from geometry (†) | DOR code | confirmed |
-| Lewis, Walla Walla, Franklin, Benton, Kittitas | County parcel layers (schemas resolved at run time) + State layer join | resolved at run time | resolved at run time / market (*) | resolved at run time | resolved at run time | likely |
-| All others | Washington State *Current Parcels* (Parcels_2026, OCIO/DOR) | not published | market VALUE_LAND + VALUE_BLDG (*) | from geometry (†) | county code decoded via the service's land-use table, else DOR LANDUSE_CD | confirmed |
+| Kitsap | Kitsap Public Health District *KitsapParcelsPub* + State join for values | OWNER | market (*) via State join | from geometry (†) | DOR code via State join | confirmed |
+| Clark | Clark County *TaxlotsforPublicUse* | not published (MainOwnerID is an internal id) | TaxTotVal | AssrAc | Pt1Desc | confirmed |
+| Skagit | Skagit County *Tax_Parcels* | OwnerName | TaxableValue | Acres | LandUse (code + text) | confirmed |
+| Cowlitz | Cowlitz County Assessor *Parcels* | DEED_HOLDER_NAME | assessed land + improvement (*) | ACRES_TOTAL | USE_CODE_DESCRIPTION | confirmed |
+| Lewis | Lewis County *Public/BaseLayers* Parcels | OWNER | market VAL_TOTAL (*) | TOTAL_ACRE | USE_DESC | confirmed |
+| Chelan | City of Wenatchee copy of the county PACS parcels, then Chelan Atlas *ParcelsOwners*; State join for values | Owner_Nam (PACS) | market (*) via State join | Acres (PACS) | DOR code via State join | confirmed |
+| Island | Island County *Geocortex/Base* Parcels + State join | taxpayer | market assessed_value (*) | legal_acreage | property_land_use_code | confirmed |
+| Benton | Benton County *Parcels_and_Assess* (ArcGIS Online) + State join | owner_name | market appraised_val (*) | legal_acres | primary_use | confirmed |
+| Kittitas | Kittitas County COMPAS *TaxParcelQuery* + Open Data *Parcels* join for values | t2_Owner | market t2_ValueMrkt (*) | from geometry (†) | landuse_name | confirmed |
+| Mason | Mason County SmartGov parcels + State join | LAST/FIRST name parts | market (*) via State join | from geometry (†) | DOR code via State join | likely |
+| Whatcom, Clallam, Franklin | Documented county layers with owner names that did not answer when probed; the State layer covers them until they return | as documented | market (*) | from geometry (†) | DOR code | likely |
+| Walla Walla | State layer + College Place city parcels join | OWNER (College Place only) | market (*) | from geometry (†) | DOR code | confirmed |
+| All others (including Grays Harbor) | Washington State *Current Parcels* (Parcels_2026, OCIO/DOR) | not published | market VALUE_LAND + VALUE_BLDG (*) | from geometry (†) | county code decoded via the service's land-use table, else DOR LANDUSE_CD | confirmed |
 
-*Verification* describes how the endpoint was checked while this app was built: the
-development sandbox could not reach the GIS hosts directly, so **confirmed** means the exact
-layer URL and field names were seen verbatim in indexed ArcGIS REST directory pages, agency
-metadata, or working client code; **likely** means the URL was seen but fields are inferred
-from the agency's schema; **guess** means the endpoint is plausible and everything is
-resolved from the live schema. The first time you run the app on a real network, check the
-*Data sources* panel: each source reports *online* with its field mapping, or *unavailable*
-with the reason. The statewide layer is the automatic fallback for any county whose
+*Verification*: **confirmed** means the layer answered a live probe from GitHub's runners
+(`scripts/probe-providers.mjs`, run by `.github/workflows/probe.yml`) and the listed fields
+were observed in its schema and sample records; **likely** means the URL and fields are
+documented in the agency's REST directory or metadata but the host did not answer the probe
+(it may be reachable only from some networks, or temporarily stopped). The probe runs weekly
+and on demand; read its job log or download the `probe-report` artifact to see the current
+state of every source. In the app, the *Data sources* panel reports each source as *online*
+with its field mapping or *unavailable* with the reason. A source that answers with no
+parcels is skipped, and the statewide layer is the automatic fallback for any county whose
 provider fails. County routing uses coarse Census county outlines (`data/wa_counties.json`)
 so a ring near a county line queries both counties.
 
