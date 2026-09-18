@@ -103,7 +103,9 @@ async function applyLookup(source, attrsList, signal) {
       const table = await loadLookup(lookup, part, signal);
       for (const a of pending) {
         if ((lookup.byField ? a._rawCounty || '' : '') !== part) continue;
-        const desc = table.get(String(a._lookupCode).trim());
+        const code = String(a._lookupCode).trim();
+        // the State table keys codes as "<county number>-<code>" (e.g. "53-1101")
+        const desc = table.get(code) ?? table.get(`${part}-${code}`) ?? table.get(`${String(Number(part))}-${code}`);
         if (desc) {
           a[lookup.target] = desc;
           a._sourceFields[lookup.target] = `${lookup.sourceField} via ${lookup.valueField} lookup`;

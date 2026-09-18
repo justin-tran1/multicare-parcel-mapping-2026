@@ -2581,9 +2581,18 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Tax parcels (Mason County SmartGov layer)",
           publisher: "Mason County GIS",
           url: "https://gis.masoncountywa.gov/arcgis/rest/services/Smartgov/SmartgovLayer/MapServer/0",
-          fields: { parcel_id: ["PARCEL_NO"], use_code: false, use_description: false },
-          ownerCompose: { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME" },
-          notes: "County parcels with owner name parts (no pagination support; the app pages by object id). Values and land use come from the State join."
+          fields: {
+            parcel_id: ["PIN", "PARCEL_NO"],
+            owner: ["OWNER_NAME"],
+            situs_address: ["SitusAddr"],
+            situs_city: ["CITY"],
+            taxable_value: ["TAX_VALUE"],
+            total_value: ["MARKET_VAL"],
+            land_acres: ["TOT_ACRES"],
+            use_code: false,
+            use_description: false
+          },
+          notes: "County parcels with owner name, taxable and market values and acres (observed live; no pagination support, so the app pages by object id). Land use comes from the State join."
         },
         {
           id: "mason-tax-parcels",
@@ -2592,7 +2601,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Tax Parcels (Mason County parcel viewer)",
           publisher: "Mason County GIS",
           url: "https://gis.masoncountywa.gov/arcgis/rest/services/MasonCoSite/TaxParcels/MapServer/0",
-          fields: { parcel_id: ["PARCEL_NO"], use_code: false, use_description: false },
+          fields: { parcel_id: ["PIN", "PARCEL_NO"], situs_address: ["Address1"], situs_city: ["City"], land_acres: ["TotalAcres"], use_code: false, use_description: false },
           notes: "Public parcel polygons; attributes resolved at run time."
         },
         STATEWIDE_ENRICH
@@ -2788,7 +2797,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
             owner: ["t2_Owner"],
             owner_address: ["t2_Address1"],
             situs_address: ["t2_Situs"],
-            situs_city: ["t2_SitusCity"],
+            situs_city: false,
+            // t2_SitusCity holds suite numbers on this layer
             taxable_value: false,
             improvement_value: ["t2_ValueImp"],
             use_description: ["landuse_name"],
@@ -2983,7 +2993,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         const table = await loadLookup(lookup, part, signal);
         for (const a of pending) {
           if ((lookup.byField ? a._rawCounty || "" : "") !== part) continue;
-          const desc = table.get(String(a._lookupCode).trim());
+          const code = String(a._lookupCode).trim();
+          const desc = table.get(code) ?? table.get(`${part}-${code}`) ?? table.get(`${String(Number(part))}-${code}`);
           if (desc) {
             a[lookup.target] = desc;
             a._sourceFields[lookup.target] = `${lookup.sourceField} via ${lookup.valueField} lookup`;
