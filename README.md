@@ -79,6 +79,13 @@ mapping actually used is shown in the sidebar.
 | Yakima | Yakima County Assessor *Taxlots* | ORG_NAME or LAST/FIRST | market MKT_LAND + MKT_IMPVT (*) | ACRES | USE_CODE (code + text) | confirmed |
 | Kitsap | Kitsap County hosted *Parcels* / Kitsap Public Health *KitsapParcelsPub* | resolved at run time | resolved at run time | POLY_ACRES | resolved at run time | guess |
 | Clark | Clark County *TaxlotsforPublicUse* | MainOwnerI | TaxTotVal | GISAc | resolved at run time | confirmed |
+| Whatcom | Whatcom County *WhatcomCo_Property* Public Tax Parcels | tax_payer_name_full | taxable_val_total | legal_acreage | property_use_description | confirmed |
+| Skagit | Skagit County *Tax_Parcels* | OwnerName | TaxableValue | Acres | LandUse | confirmed |
+| Cowlitz | Cowlitz County *Cadastral/Parcels* | DEED_HOLDER_NAME | TAXABLE_VALUE | ACRES_TOTAL | USE_CODE_DESCRIPTION | confirmed |
+| Clallam | Clallam County *ParcelMap* + State layer join for values | OWN_LAST, OWN_FIRST | market (*) via State join | ACRES_GIS | PRC_CLASS | confirmed |
+| Mason, Chelan, Island | County parcel layers + State layer join for values, 2021 DAHP compilation join for owner names where the county layer has none | varies (flagged) | market (*) | varies | varies | confirmed / likely |
+| Grays Harbor | State layer + 2021 DAHP compilation join for owner names | OWNER (2021, flagged) | market (*) | from geometry (†) | DOR code | confirmed |
+| Lewis, Walla Walla, Franklin, Benton, Kittitas | County parcel layers (schemas resolved at run time) + State layer join | resolved at run time | resolved at run time / market (*) | resolved at run time | resolved at run time | likely |
 | All others | Washington State *Current Parcels* (Parcels_2026, OCIO/DOR) | not published | market VALUE_LAND + VALUE_BLDG (*) | from geometry (†) | DOR LANDUSE_CD decoded | confirmed |
 
 *Verification* describes how the endpoint was checked while this app was built: the

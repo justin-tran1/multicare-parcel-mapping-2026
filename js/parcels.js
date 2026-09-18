@@ -105,6 +105,13 @@ function extractAttrs(props, prep, source) {
       out._sourceFields.use_description = `${m.use_code} (domain)`;
     }
   }
+  // Situs address stored as components (number, direction, street, suffix, unit).
+  if (!out.situs_address && Array.isArray(source.situsCompose)) {
+    const parts = source.situsCompose.map((f) => cleanText(getField(props, f))).filter(Boolean);
+    out.situs_address = parts.join(' ').replace(/\s+/g, ' ').trim();
+    if (out.situs_address) out._sourceFields.situs_address = source.situsCompose.join(' + ');
+  }
+  if (source.linkIdField) out._linkId = cleanText(getField(props, source.linkIdField));
   // Some assessors split owner into organisation / last / first / middle name fields.
   if (!out.owner && source.ownerCompose) {
     const c = source.ownerCompose;
@@ -125,7 +132,12 @@ function extractAttrs(props, prep, source) {
     }
   }
   for (const [attr, field] of Object.entries(m)) if (field && !out._sourceFields[attr]) out._sourceFields[attr] = field;
-  if (source.ownerNote && out.owner && m.owner && /business/i.test(m.owner)) out._ownerNote = source.ownerNote;
+  // A caveat attached to owner names from this source (e.g. business names only, or a
+  // dated compilation), optionally only when a particular field supplied the name.
+  if (source.ownerNote && out.owner) {
+    const cond = source.ownerNoteField ? new RegExp(source.ownerNoteField, 'i') : null;
+    if (!cond || (m.owner && cond.test(m.owner))) out._ownerNote = source.ownerNote;
+  }
   return out;
 }
 
@@ -197,7 +209,8 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
   }
 
   let link = attrs.assessor_link || '';
-  if (!link && provider.assessorLink && parcelId) link = provider.assessorLink.replace('{parcel}', encodeURIComponent(parcelId));
+  const linkId = attrs._linkId || parcelId;
+  if (!link && provider.assessorLink && linkId) link = provider.assessorLink.replace('{parcel}', encodeURIComponent(linkId));
   if (link && !/^https?:\/\//i.test(link)) link = '';
 
   return {
