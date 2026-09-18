@@ -2095,6 +2095,27 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           notes: "County-wide parcel polygons joined to Assessor-Treasurer data including taxpayer name and taxable value."
         },
         {
+          id: "tacoma-ats-parcels-alt-host",
+          geometry: true,
+          enrich: true,
+          confidence: "guess",
+          name: "Pierce County Tax Parcels with Assessor-Treasurer info (City of Tacoma GIS, alternate host)",
+          publisher: "City of Tacoma ITD / Pierce County Assessor-Treasurer",
+          url: "https://gis.tacoma.gov/arcgis/rest/services/Ref/ITD_Basemap/MapServer/2",
+          fields: {
+            parcel_id: ["TaxParcelNumber"],
+            owner: ["TAXPAYERNAME", "TaxpayerName", "Taxpayer_Name"],
+            situs_address: ["SiteAddress", "Site_Address"],
+            taxable_value: ["TaxableValueCurrentYear", "TaxableValue", "Taxable_Value", "TaxableValuePriorYear"],
+            land_value: ["LandValueCurrentYear", "LandValue", "Land_Value", "LandValuePriorYear"],
+            improvement_value: ["ImprovementValueCurrentYear", "ImprovementValue", "Improvement_Value", "ImprovementValuePriorYear"],
+            total_value: ["TotalMarketValueCurrentYear", "TotalMarketValue", "TotalMarketValuePriorYear"],
+            land_acres: ["LandGrossAcres", "Land_Acres"],
+            use_code: ["Use_Code", "CurrentUseCodeCurrentYear"]
+          },
+          notes: "Same service path on the city\u2019s other ArcGIS Server host; tried only if the primary host is unreachable."
+        },
+        {
           id: "pierce-tax-parcels",
           geometry: true,
           enrich: true,
