@@ -1,7 +1,7 @@
 // ParcelService: routes a bounding box to the right county provider(s), queries the live
 // ArcGIS layers, joins enrichment layers by parcel id, and normalizes features into records.
 
-import { getLayerInfo, queryFeatures, ArcGISError } from './arcgis.js';
+import { getLayerInfo, queryFeatures, request, ArcGISError } from './arcgis.js';
 import { resolveFieldMap, toNumber, cleanText } from './fields.js';
 import { PROVIDERS, STATEWIDE } from './providers.js';
 import { decodeDOR } from './dor_codes.js';
@@ -64,6 +64,57 @@ async function prepareSource(source, { signal } = {}) {
 }
 
 const isAbort = (err) => err?.code === 'aborted' || err?.name === 'AbortError';
+
+// Code -> description lookup tables (e.g. the State service's county land-use code table),
+// cached per table URL and partition value.
+const lookupCache = new Map();
+
+async function loadLookup(lookup, partition, signal) {
+  const key = `${lookup.url}|${partition ?? ''}`;
+  if (!lookupCache.has(key)) {
+    const p = (async () => {
+      const where = lookup.byField && partition !== null && partition !== undefined && partition !== ''
+        ? `${lookup.byField}='${String(partition).replace(/'/g, "''")}'`
+        : '1=1';
+      const resp = await request(`${lookup.url}/query`, { where, outFields: `${lookup.keyField},${lookup.valueField}`, returnGeometry: false, f: 'json' }, { timeoutMs: 20000 });
+      const map = new Map();
+      for (const f of resp.features || []) {
+        const a = f.attributes || {};
+        const k = String(a[lookup.keyField] ?? '').trim();
+        if (k) map.set(k, cleanText(a[lookup.valueField]));
+      }
+      return map;
+    })();
+    lookupCache.set(key, p);
+    p.catch(() => lookupCache.delete(key));
+  }
+  return withSignal(lookupCache.get(key), signal);
+}
+
+/** Fills `target` from a lookup table for records that still lack it. Failures are silent. */
+async function applyLookup(source, attrsList, signal) {
+  const lookup = source.lookup;
+  if (!lookup) return;
+  const pending = attrsList.filter((a) => a._lookupCode && !a[lookup.target]);
+  if (!pending.length) return;
+  const partitions = new Set(pending.map((a) => (lookup.byField ? a._rawCounty || '' : '')));
+  await Promise.all([...partitions].map(async (part) => {
+    try {
+      const table = await loadLookup(lookup, part, signal);
+      for (const a of pending) {
+        if ((lookup.byField ? a._rawCounty || '' : '') !== part) continue;
+        const desc = table.get(String(a._lookupCode).trim());
+        if (desc) {
+          a[lookup.target] = desc;
+          a._sourceFields[lookup.target] = `${lookup.sourceField} via ${lookup.valueField} lookup`;
+        }
+      }
+    } catch (err) {
+      if (isAbort(err)) throw err;
+      /* lookup unavailable: keep codes */
+    }
+  }));
+}
 
 function getField(props, name) {
   if (!name) return undefined;
@@ -142,13 +193,24 @@ function extractAttrs(props, prep, source) {
   }
   for (const [attr, spec] of Object.entries(source.computed || {})) {
     if (out[attr] === null || out[attr] === undefined || out[attr] === '') {
-      const v = sumFields(props, spec.sum);
-      if (v !== null) {
-        out[attr] = v;
-        out._sourceFields[attr] = `${spec.sum.join(' + ')}`;
+      if (spec.sum) {
+        const v = sumFields(props, spec.sum);
+        if (v !== null) {
+          out[attr] = v;
+          out._sourceFields[attr] = `${spec.sum.join(' + ')}`;
+        }
+      } else if (spec.diff) {
+        const a = toNumber(getField(props, spec.diff[0]));
+        const b = toNumber(getField(props, spec.diff[1]));
+        if (a !== null && b !== null && a - b >= 0) {
+          out[attr] = a - b;
+          out._sourceFields[attr] = `${spec.diff[0]} - ${spec.diff[1]}`;
+        }
       }
     }
   }
+  if (m.county) out._rawCounty = cleanText(getField(props, m.county));
+  if (source.lookup) out._lookupCode = cleanText(getField(props, source.lookup.sourceField));
   for (const [attr, field] of Object.entries(m)) if (field && !out._sourceFields[attr]) out._sourceFields[attr] = field;
   // A caveat attached to owner names from this source (e.g. business names only, or a
   // dated compilation), optionally only when a particular field supplied the name.
@@ -160,7 +222,7 @@ function extractAttrs(props, prep, source) {
 }
 
 function mergeAttrs(primary, extras) {
-  const out = { ...primary, _sourceFields: { ...primary._sourceFields } };
+  const out = { ...primary, _sourceFields: { ...primary._sourceFields } }; // keeps _rawCounty/_lookupCode
   for (const extra of extras) {
     for (const [k, v] of Object.entries(extra)) {
       if (k.startsWith('_')) continue;
@@ -412,7 +474,7 @@ export class ParcelService {
     }));
     if (signal?.aborted) throw new ArcGISError('Cancelled', { code: 'aborted' });
 
-    let added = 0;
+    const prepared = [];
     for (const f of primaryFC.features) {
       const props = f.properties || {};
       const attrs = extractAttrs(props, primaryPrep, primary);
@@ -423,6 +485,17 @@ export class ParcelService {
       const k = normalizeParcelId(attrs.parcel_id);
       const extras = k ? enrichMaps.map((e) => e.byId.get(k)).filter(Boolean) : [];
       const merged = extras.length ? mergeAttrs(attrs, extras) : attrs;
+      prepared.push({ f, merged, featureCounty });
+    }
+    if (primary.lookup) {
+      for (const p of prepared) {
+        // lookup metadata lives on the primary's raw attributes
+        if (p.merged._rawCounty === undefined) p.merged._rawCounty = '';
+      }
+      await applyLookup(primary, prepared.map((p) => p.merged), signal);
+    }
+    let added = 0;
+    for (const { f, merged, featureCounty } of prepared) {
       const rec = buildRecord({ feature: f, provider, source: primary, attrs: merged, county: featureCounty });
       if (!records.has(rec.key)) {
         records.set(rec.key, rec);

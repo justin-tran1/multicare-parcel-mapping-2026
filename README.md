@@ -72,9 +72,9 @@ mapping actually used is shown in the sidebar.
 | County | Primary layer | Owner | Taxable value | Acres | Use | Verification |
 | --- | --- | --- | --- | --- | --- | --- |
 | Pierce | City of Tacoma *Pierce County Tax Parcels (with ATS Info)* + Pierce County *Tax Parcels* (joined for land-use description) | TAXPAYERNAME | TaxableValue (current or prior year) | LandGrossAcres | Use_Code + Landuse_Description | confirmed |
-| King | King County GIS *parcel_address_area* | KCTP_NAME | TAX_LNDVAL + TAX_IMPR | KCA_ACRES | PREUSE_DESC | confirmed |
-| Snohomish | Snohomish County *Cadastral/Tax_Parcels* | TAXPRNAME / OWNERNAME | market total MKTTL (*) | TAB_ACRES | USECODE | confirmed |
-| Spokane | Spokane County Assessor *Parcels* (GISMO) | resolved at run time | resolved at run time | resolved at run time | resolved at run time | likely |
+| King | King County *PARCEL_ADDRESS_PUB_AREA* (ArcGIS Online), then *parcel_address_area* | KCTP_NAME | TAX_LNDVAL + TAX_IMPR | KCA_ACRES | PREUSE_DESC | confirmed |
+| Snohomish | Snohomish County Open Data *Parcels* (ArcGIS Online), then *Cadastral/Tax_Parcels* | TAXPRNAME / OWNERNAME | market total MKTTL (*) | TAB_ACRES | USECODE | confirmed |
+| Spokane | Spokane County Open Data *Parcels* (ArcGIS Online) + SCOUT *PropertyLookup* join for owner | owner_name (SCOUT join) | taxable_amt | acreage | prop_use_desc | confirmed |
 | Thurston | Thurston GeoData *Thurston_Parcels* | not published | TAXABLE | TOTAL_ACRE | CURR_USE / PROP_TYPE | confirmed |
 | Yakima | Yakima County Assessor *Taxlots* | ORG_NAME or LAST/FIRST | market MKT_LAND + MKT_IMPVT (*) | ACRES | USE_CODE (code + text) | confirmed |
 | Kitsap | Kitsap County hosted *Parcels* / Kitsap Public Health *KitsapParcelsPub* | resolved at run time | resolved at run time | POLY_ACRES | resolved at run time | guess |
@@ -86,7 +86,7 @@ mapping actually used is shown in the sidebar.
 | Mason, Chelan, Island | County parcel layers + State layer join for values, 2021 DAHP compilation join for owner names where the county layer has none | varies (flagged) | market (*) | varies | varies | confirmed / likely |
 | Grays Harbor | State layer + 2021 DAHP compilation join for owner names | OWNER (2021, flagged) | market (*) | from geometry (†) | DOR code | confirmed |
 | Lewis, Walla Walla, Franklin, Benton, Kittitas | County parcel layers (schemas resolved at run time) + State layer join | resolved at run time | resolved at run time / market (*) | resolved at run time | resolved at run time | likely |
-| All others | Washington State *Current Parcels* (Parcels_2026, OCIO/DOR) | not published | market VALUE_LAND + VALUE_BLDG (*) | from geometry (†) | DOR LANDUSE_CD decoded | confirmed |
+| All others | Washington State *Current Parcels* (Parcels_2026, OCIO/DOR) | not published | market VALUE_LAND + VALUE_BLDG (*) | from geometry (†) | county code decoded via the service's land-use table, else DOR LANDUSE_CD | confirmed |
 
 *Verification* describes how the endpoint was checked while this app was built: the
 development sandbox could not reach the GIS hosts directly, so **confirmed** means the exact
