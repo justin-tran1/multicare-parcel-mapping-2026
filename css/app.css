@@ -240,13 +240,22 @@ body.print-mode .exhibit-header {
 body.print-mode .exhibit-title { font-size: 30px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
 body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
-body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; }
-body.print-mode .table-wrap { overflow: hidden; display: block !important; }
-body.print-mode table.parcels { font-size: 8.5pt; }
-body.print-mode table.parcels th, body.print-mode table.parcels td { padding: 1px 4px; border-bottom: 0; line-height: 1.15; }
-body.print-mode table.parcels th { position: static; background: #fff; border-bottom: 1px solid var(--cbre-green); }
-body.print-mode table.parcels tbody tr:hover { background: transparent; }
-body.print-mode table.parcels tfoot td { font-size: 8.5pt; }
+body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
+body.print-mode .table-wrap { display: none !important; }
+.print-table { display: none; }
+body.print-mode .print-table { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0 8px; align-items: start; }
+body.print-mode .print-table table.parcels { font-size: 7.6pt; table-layout: fixed; width: 100%; }
+body.print-mode .print-table table.parcels th, body.print-mode .print-table table.parcels td { padding: 0 3px; border-bottom: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.print-mode .print-table table.parcels th { position: static; background: #fff; border-bottom: 1px solid var(--cbre-green); font-size: 7.6pt; }
+body.print-mode .print-table table.parcels td.id { width: 18px; }
+body.print-mode .print-table table.parcels td.num { width: 52px; }
+body.print-mode .print-table table.parcels td:nth-child(5) { max-width: 70px; }
+body.print-mode .print-table .sup { display: none; }
+body.print-mode .print-totals { grid-column: 1 / -1; font-size: 7.6pt; font-weight: 700; color: var(--cbre-green); border-top: 1px solid var(--cbre-green); margin-top: 3px; padding-top: 2px; }
+body.print-mode .main { grid-template-columns: minmax(0, 1fr) auto; }
+body.print-mode .results { width: 4.2in; }
+body.print-mode .results:has(.print-table[style*="--cols: 2"]) { width: 7.6in; }
+body.print-mode .results:has(.print-table[style*="--cols: 3"]) { width: 10in; }
 body.print-mode .exhibit-footer {
   grid-area: foot; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
   padding: 6px 14px; font-size: 7pt; color: var(--text-muted); border-top: 1px solid var(--light-grey);

@@ -795,7 +795,7 @@ details.sub summary { cursor: pointer; font-weight: 600; color: var(--dark-grey)
 .source { border-left: 3px solid var(--celadon); padding: 4px 8px; margin: 6px 0; background: var(--panel-tint); border-radius: 0 6px 6px 0; }
 .source.err { border-left-color: var(--data-orange); }
 .source .name { font-weight: 600; }
-.source .map { color: var(--text-muted); }
+.source .fmap { color: var(--text-muted); }
 .source a { word-break: break-all; }
 .status-ok { color: var(--cbre-green); font-weight: 600; }
 .status-err { color: #9c3d1c; font-weight: 600; }
@@ -911,13 +911,22 @@ body.print-mode .exhibit-header {
 body.print-mode .exhibit-title { font-size: 30px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
 body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
-body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; }
-body.print-mode .table-wrap { overflow: hidden; display: block !important; }
-body.print-mode table.parcels { font-size: 8.5pt; }
-body.print-mode table.parcels th, body.print-mode table.parcels td { padding: 1px 4px; border-bottom: 0; line-height: 1.15; }
-body.print-mode table.parcels th { position: static; background: #fff; border-bottom: 1px solid var(--cbre-green); }
-body.print-mode table.parcels tbody tr:hover { background: transparent; }
-body.print-mode table.parcels tfoot td { font-size: 8.5pt; }
+body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
+body.print-mode .table-wrap { display: none !important; }
+.print-table { display: none; }
+body.print-mode .print-table { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0 8px; align-items: start; }
+body.print-mode .print-table table.parcels { font-size: 7.6pt; table-layout: fixed; width: 100%; }
+body.print-mode .print-table table.parcels th, body.print-mode .print-table table.parcels td { padding: 0 3px; border-bottom: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.print-mode .print-table table.parcels th { position: static; background: #fff; border-bottom: 1px solid var(--cbre-green); font-size: 7.6pt; }
+body.print-mode .print-table table.parcels td.id { width: 18px; }
+body.print-mode .print-table table.parcels td.num { width: 52px; }
+body.print-mode .print-table table.parcels td:nth-child(5) { max-width: 70px; }
+body.print-mode .print-table .sup { display: none; }
+body.print-mode .print-totals { grid-column: 1 / -1; font-size: 7.6pt; font-weight: 700; color: var(--cbre-green); border-top: 1px solid var(--cbre-green); margin-top: 3px; padding-top: 2px; }
+body.print-mode .main { grid-template-columns: minmax(0, 1fr) auto; }
+body.print-mode .results { width: 4.2in; }
+body.print-mode .results:has(.print-table[style*="--cols: 2"]) { width: 7.6in; }
+body.print-mode .results:has(.print-table[style*="--cols: 3"]) { width: 10in; }
 body.print-mode .exhibit-footer {
   grid-area: foot; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
   padding: 6px 14px; font-size: 7pt; color: var(--text-muted); border-top: 1px solid var(--light-grey);
@@ -1556,7 +1565,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (!info || !info.fields && !info.geometryType && !info.type) {
         throw new ArcGISError("Not a layer (no fields/geometryType in metadata)", { url, code: "notlayer" });
       }
-      const fields = (info.fields || []).map((f) => ({ name: f.name, alias: f.alias || f.name, type: f.type, length: f.length }));
+      const fields = (info.fields || []).map((f) => ({ name: f.name, alias: f.alias || f.name, type: f.type, length: f.length, domain: f.domain || null }));
       const formats = String(info.supportedQueryFormats || "").toLowerCase();
       const aqc = info.advancedQueryCapabilities || {};
       const oid = info.objectIdField || fields.find((f) => f.type === "esriFieldTypeOID")?.name || "OBJECTID";
@@ -1919,11 +1928,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       {
         id: "wa-current-parcels",
         geometry: true,
+        confidence: "confirmed",
         name: "Current Parcels (Parcels_2026)",
         publisher: "Washington State OCIO Geospatial Program / WA Geospatial Open Data",
         url: "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Current_Parcels/FeatureServer/0",
         fields: {
-          parcel_id: ["PARCEL_ID_NR", "ORIG_PARCEL_ID"],
+          parcel_id: ["ORIG_PARCEL_ID", "PARCEL_ID_NR"],
           owner: [],
           situs_address: ["SITUS_ADDRESS"],
           situs_city: ["SITUS_CITY_NM"],
@@ -1934,11 +1944,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           county: ["COUNTY_NM"]
         },
         computed: { total_value: { sum: ["VALUE_LAND", "VALUE_BLDG"], label: "Market land + building value" } },
-        notes: "Normalized DOR schema for all 39 counties. Owner/taxpayer names are not published on this layer; values are market (not taxable)."
+        notes: "Normalized DOR schema for all 39 counties, updated April 2026. Owner/taxpayer names are not published on this layer; values are market (not taxable). DATA_LINK opens the county assessor record."
       },
       {
         id: "wa-ecology-mirror",
         geometry: true,
+        confidence: "confirmed",
         name: "Statewide parcels (Ecology mirror)",
         publisher: "Washington State Department of Ecology",
         url: "https://gis.ecology.wa.gov/serverext/rest/services/GIS/WetlandsRatingTool/MapServer/123",
@@ -1957,6 +1968,70 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       }
     ]
   };
+  var PIERCE_COUNTY_FIELDS = {
+    parcel_id: ["TaxParcelNumber"],
+    owner: ["Taxpayer_Name", "Business_Name"],
+    owner_address: ["Delivery_Address"],
+    situs_address: ["Site_Address"],
+    taxable_value: ["Taxable_Value"],
+    land_value: ["Land_Value"],
+    improvement_value: ["Improvement_Value"],
+    total_value: ["Total_Market_Value"],
+    land_acres: ["Land_Acres"],
+    use_code: ["Use_Code"],
+    use_description: ["Landuse_Description"]
+  };
+  var KING_FIELDS = {
+    parcel_id: ["PIN"],
+    owner: ["KCTP_NAME", "TAXPAYERNAME"],
+    owner_address: ["KCTP_ADDR"],
+    situs_address: ["ADDR_FULL"],
+    situs_city: ["CTYNAME", "POSTALCTYNAME"],
+    land_value: ["APPRLNDVAL"],
+    improvement_value: ["APPR_IMPR"],
+    land_acres: ["KCA_ACRES"],
+    land_sqft: ["LOTSQFT"],
+    use_code: ["PREUSE_CODE", "PRESENTUSE"],
+    use_description: ["PREUSE_DESC"]
+  };
+  var KING_COMPUTED = {
+    taxable_value: { sum: ["TAX_LNDVAL", "TAX_IMPR"], label: "Taxable land + improvement value" },
+    total_value: { sum: ["APPRLNDVAL", "APPR_IMPR"], label: "Appraised land + improvement value" }
+  };
+  var SNOHOMISH_FIELDS = {
+    parcel_id: ["PARCEL_ID"],
+    owner: ["TAXPRNAME", "OWNERNAME"],
+    owner_address: ["OWNERLINE1"],
+    situs_address: ["SITUSLINE1"],
+    situs_city: ["SITUSCITY"],
+    land_value: ["MKLND"],
+    improvement_value: ["MKIMP"],
+    total_value: ["MKTTL"],
+    land_acres: ["TAB_ACRES"],
+    use_code: ["USECODE"],
+    use_description: ["USEDESC"]
+  };
+  var YAKIMA_FIELDS = {
+    parcel_id: ["ASSESSOR_N", "TAXLOT_N", "PARC"],
+    owner: ["ORG_NAME"],
+    owner_address: ["MAILING_AD"],
+    situs_address: ["SITUS_ADDR"],
+    situs_city: ["SITUS_CITY"],
+    land_value: ["MKT_LAND"],
+    improvement_value: ["MKT_IMPVT"],
+    land_acres: ["ACRES", "SIZE"],
+    use_code: ["USE_CODE"]
+  };
+  var CLARK_FIELDS = {
+    parcel_id: ["Prop_id", "prop_id", "PROP_ID"],
+    owner: ["MainOwnerI", "MainOwnerInfo", "Owner"],
+    situs_address: ["SitusAddrs", "SitusAddress"],
+    taxable_value: ["TaxTotVal"],
+    land_value: ["MktLandVal"],
+    improvement_value: ["MktBldgVal"],
+    land_acres: ["GISAc", "LandAcres"],
+    use_code: ["PropClass", "PropertyClass", "LandUse"]
+  };
   var PROVIDERS = [
     {
       key: "pierce",
@@ -1969,6 +2044,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           id: "tacoma-ats-parcels",
           geometry: true,
           enrich: true,
+          confidence: "confirmed",
           name: "Pierce County Tax Parcels with Assessor-Treasurer info (City of Tacoma GIS)",
           publisher: "City of Tacoma ITD / Pierce County Assessor-Treasurer",
           url: "https://esgis.tacoma.gov/arcgis/rest/services/Ref/ITD_Basemap/MapServer/2",
@@ -1990,24 +2066,24 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           id: "pierce-tax-parcels",
           geometry: true,
           enrich: true,
+          confidence: "confirmed",
           name: "Tax Parcels (Pierce County Open GeoSpatial Data Portal)",
           publisher: "Pierce County Planning & Public Works GIS / Assessor-Treasurer",
           url: "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Tax_Parcels/FeatureServer/0",
-          fields: {
-            parcel_id: ["TaxParcelNumber"],
-            owner: ["Taxpayer_Name", "Business_Name"],
-            owner_address: ["Delivery_Address"],
-            situs_address: ["Site_Address"],
-            taxable_value: ["Taxable_Value"],
-            land_value: ["Land_Value"],
-            improvement_value: ["Improvement_Value"],
-            total_value: ["Total_Market_Value"],
-            land_acres: ["Land_Acres"],
-            use_code: ["Use_Code"],
-            use_description: ["Landuse_Description"]
-          },
+          fields: PIERCE_COUNTY_FIELDS,
           ownerNote: "Business_Name lists the taxpayer name for business-owned parcels only",
           notes: "Authoritative county layer with taxable value, land acres, use code and land-use description; individual taxpayer names are not published here."
+        },
+        {
+          id: "soundtransit-pierce-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Tax Parcels, Pierce County (Sound Transit STARS mirror)",
+          publisher: "Sound Transit (mirror of Pierce County data)",
+          url: "https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/1",
+          fields: PIERCE_COUNTY_FIELDS,
+          ownerNote: "Business_Name lists the taxpayer name for business-owned parcels only",
+          notes: "Regional mirror of the county layer; refresh cadence may lag."
         }
       ]
     },
@@ -2021,52 +2097,295 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         {
           id: "king-parcel-address-area",
           geometry: true,
+          confidence: "confirmed",
           name: "parcel_address_area (King County GIS, Districts/DistrictsReport)",
           publisher: "King County GIS Center / King County Assessor",
           url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Districts/DistrictsReport/MapServer/1",
-          fields: {
-            parcel_id: ["PIN"],
-            owner: ["KCTP_NAME", "TAXPAYERNAME"],
-            owner_address: ["KCTP_ADDR"],
-            situs_address: ["ADDR_FULL"],
-            situs_city: ["CTYNAME", "POSTALCTYNAME"],
-            land_value: ["APPRLNDVAL"],
-            improvement_value: ["APPR_IMPR"],
-            land_acres: ["KCA_ACRES"],
-            land_sqft: ["LOTSQFT"],
-            use_code: ["PREUSE_CODE", "PRESENTUSE"],
-            use_description: ["PREUSE_DESC"]
-          },
-          computed: {
-            taxable_value: { sum: ["TAX_LNDVAL", "TAX_IMPR"], label: "Taxable land + improvement value" },
-            total_value: { sum: ["APPRLNDVAL", "APPR_IMPR"], label: "Appraised land + improvement value" }
-          },
+          fields: KING_FIELDS,
+          computed: KING_COMPUTED,
           notes: "Parcels with taxpayer name, appraised and taxable land/improvement values, lot size and present-use description."
         },
         {
           id: "king-propertyinfo-parcels",
           geometry: true,
+          confidence: "likely",
           name: "Parcels (King County Property/KingCo_PropertyInfo)",
           publisher: "King County GIS Center",
           url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Property/KingCo_PropertyInfo/MapServer/2",
-          fields: {
-            parcel_id: ["PIN"],
-            owner: ["KCTP_NAME", "FULLNAME"],
-            owner_address: ["KCTP_ADDR"],
-            situs_address: ["ADDR_FULL"],
-            situs_city: ["CTYNAME"],
-            land_value: ["APPRLNDVAL"],
-            improvement_value: ["APPR_IMPR"],
-            land_acres: ["KCA_ACRES"],
-            land_sqft: ["LOTSQFT"],
-            use_code: ["PREUSE_CODE", "PRESENTUSE"],
-            use_description: ["PREUSE_DESC"]
-          },
-          computed: {
-            taxable_value: { sum: ["TAX_LNDVAL", "TAX_IMPR"], label: "Taxable land + improvement value" },
-            total_value: { sum: ["APPRLNDVAL", "APPR_IMPR"], label: "Appraised land + improvement value" }
-          },
+          fields: { ...KING_FIELDS, owner: ["KCTP_NAME", "TAXPAYERNAME", "FULLNAME"] },
+          computed: KING_COMPUTED,
           notes: "Fallback property-themed parcel layer used by King County Parcel Viewer."
+        },
+        {
+          id: "king-opendata-legacy",
+          geometry: true,
+          confidence: "confirmed",
+          name: "parcel_address_area (King County Open Data legacy server)",
+          publisher: "King County GIS Center",
+          url: "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/property__parcel_address_area/MapServer/1722",
+          fields: KING_FIELDS,
+          computed: KING_COMPUTED,
+          notes: "Legacy mirror with the same schema."
+        }
+      ]
+    },
+    {
+      key: "snohomish",
+      name: "Snohomish County",
+      counties: ["Snohomish"],
+      useCodeScheme: "county",
+      assessorLink: "https://www.snoco.org/proptax/search.aspx?parcel_number={parcel}",
+      sources: [
+        {
+          id: "snoco-tax-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Tax Parcels (Snohomish County Cadastral)",
+          publisher: "Snohomish County GIS / Assessor",
+          url: "https://gis.snoco.org/sis/rest/services/Cadastral/Tax_Parcels/MapServer/0",
+          fields: SNOHOMISH_FIELDS,
+          notes: "Taxpayer of record and owner names, market land/improvement/total values (no taxable value field), acres and use code."
+        },
+        {
+          id: "snoco-hosted-parcels",
+          geometry: true,
+          confidence: "guess",
+          name: "Parcels (Snohomish County hosted)",
+          publisher: "Snohomish County GIS",
+          url: "https://gis.snoco.org/host/rest/services/Hosted/Parcels/FeatureServer/0",
+          fields: SNOHOMISH_FIELDS,
+          notes: "Hosted copy of the same schema; probed only if the cadastral service is unavailable."
+        },
+        {
+          id: "soundtransit-snohomish-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Tax Parcels, Snohomish County (Sound Transit STARS mirror)",
+          publisher: "Sound Transit (mirror of Snohomish County data)",
+          url: "https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/2",
+          fields: SNOHOMISH_FIELDS,
+          notes: "Regional mirror; refresh cadence may lag."
+        }
+      ]
+    },
+    {
+      key: "spokane",
+      name: "Spokane County",
+      counties: ["Spokane"],
+      useCodeScheme: "dor-prefix",
+      assessorLink: "https://cp.spokanecounty.org/SCOUT/propertyinformation/Summary.aspx?PID={parcel}",
+      sources: [
+        {
+          id: "spokane-assessor-parcels",
+          geometry: true,
+          confidence: "likely",
+          name: "Parcels (Spokane County Assessor, Parcels_GISCORE)",
+          publisher: "Spokane County Assessor / Spokane County GIS",
+          url: "https://gismo.spokanecounty.org/arcgis/rest/services/Assessor/Parcels/MapServer/0",
+          fields: {
+            parcel_id: ["PID_NUM", "PID"],
+            owner: ["OWNER_NAME", "TAXPAYER_NAME", "OWNER", "Owner_Name", "TaxpayerName"],
+            situs_address: ["SITE_ADDRESS", "Site_Address"],
+            taxable_value: ["TAXABLE_VALUE", "Taxable_Value"],
+            land_value: ["LAND_VALUE", "Land_Value"],
+            improvement_value: ["IMP_VALUE", "IMPROVEMENT_VALUE", "Improvement_Value"],
+            total_value: ["TOTAL_VALUE", "TOTAL_MARKET_VALUE", "Total_Value"],
+            land_acres: ["GIS_ACRES", "ACRES", "Acres"],
+            use_code: ["PROPERTY_CLASS", "LAND_USE_CODE", "PropClass"],
+            use_description: ["PROPERTY_CLASS_DESC", "LAND_USE_DESC"]
+          },
+          notes: "County assessor parcel layer; attribute names are resolved from the live schema."
+        },
+        {
+          id: "spokane-utilities-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Parcels (Spokane County Environmental Services)",
+          publisher: "Spokane County GIS",
+          url: "https://gismo.spokanecounty.org/arcgis/rest/services/EnvServices/SewerDrawings/MapServer/0",
+          fields: {
+            parcel_id: ["PID_NUM"],
+            owner: ["OWNER_NAME", "TAXPAYER_NAME", "OWNER"],
+            situs_address: ["SITE_ADDRESS"]
+          },
+          notes: "County parcel feature class with owner and site address, published for utility mapping."
+        },
+        {
+          id: "wisaard-spokane-2021",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Spokane County parcels, 2021 vintage (DAHP WISAARD)",
+          publisher: "Washington State Department of Archaeology and Historic Preservation",
+          url: "https://wisaard.dahp.wa.gov/server/rest/services/County_Parcels/MapServer/30",
+          fields: {
+            parcel_id: ["PID", "PID_NUM", "PARCEL_ID"],
+            owner: ["OWNER_NM", "TAXPAYER_NM"],
+            use_description: ["LANDUSE_DESC"]
+          },
+          notes: "Stale (2021) statewide compilation with owner names; last resort for Spokane."
+        }
+      ]
+    },
+    {
+      key: "thurston",
+      name: "Thurston County",
+      counties: ["Thurston"],
+      useCodeScheme: "county",
+      assessorLink: "https://tcproperty.co.thurston.wa.us/propsql/basic.asp?fe=PR&pn={parcel}",
+      sources: [
+        {
+          id: "thurston-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Thurston Parcels (Thurston GeoData Center)",
+          publisher: "Thurston County GeoData Center / Assessor",
+          url: "https://map.co.thurston.wa.us/arcgis/rest/services/Thurston/Thurston_Parcels/FeatureServer/0",
+          fields: {
+            parcel_id: ["ParcelNumber", "PARCEL_NO"],
+            owner: ["OWNER", "OWNER_NAME", "TAXPAYER", "Owner"],
+            owner_address: ["ADDRESS1"],
+            situs_address: ["SITUS_STRE", "SitusAddress"],
+            situs_city: ["SITUS_CITY"],
+            taxable_value: ["TAXABLE"],
+            land_value: ["LAND_VALUE"],
+            improvement_value: ["BLDG_VALUE"],
+            total_value: ["TOTAL_VALU", "TOTAL_VALUE"],
+            land_acres: ["TOTAL_ACRE", "TOTAL_ACRES"],
+            use_code: ["CURR_USE", "PROP_TYPE"],
+            use_description: ["PROP_SUBTY", "PROP_TYPE_DESC"]
+          },
+          notes: "County parcel layer with taxable value, land/building values and acreage; owner names may not be published."
+        },
+        {
+          id: "thurston-enterprise-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Parcels (Thurston County Enterprise, Common_Layers)",
+          publisher: "Thurston County",
+          url: "https://tconline.co.thurston.wa.us/server/rest/services/Common_Layers/Parcels/FeatureServer/4",
+          fields: {
+            parcel_id: ["ParcelNumber", "PARCEL_NO"],
+            owner: ["OWNER", "OWNER_NAME", "TAXPAYER"],
+            situs_address: ["SITUS_STRE"],
+            situs_city: ["SITUS_CITY"],
+            taxable_value: ["TAXABLE"],
+            land_value: ["LAND_VALUE"],
+            improvement_value: ["BLDG_VALUE"],
+            total_value: ["TOTAL_VALU"],
+            land_acres: ["TOTAL_ACRE"],
+            use_code: ["CURR_USE", "PROP_TYPE"]
+          },
+          notes: "Newer county host with the same assessor extract."
+        }
+      ]
+    },
+    {
+      key: "yakima",
+      name: "Yakima County",
+      counties: ["Yakima"],
+      useCodeScheme: "dor",
+      assessorLink: null,
+      sources: [
+        {
+          id: "yakima-taxlots",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Taxlots (Yakima County Assessor)",
+          publisher: "Yakima County GIS / Assessor",
+          url: "https://maps.yakimacounty.us/server/rest/services/Assessor/Taxlots/FeatureServer/2",
+          fields: YAKIMA_FIELDS,
+          ownerCompose: { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME", middle: "MIDDLE_NAME" },
+          computed: { total_value: { sum: ["MKT_LAND", "MKT_IMPVT"], label: "Market land + improvement value" } },
+          notes: "Current tax-roll taxlots with organisation or individual owner names, market values, acres, and DOR use code with description."
+        },
+        {
+          id: "yakima-agol-parcels",
+          geometry: true,
+          confidence: "likely",
+          name: "Parcels (Yakima County ArcGIS Online)",
+          publisher: "Yakima County GIS",
+          url: "https://services3.arcgis.com/9Qz94N8Zml9hnG84/arcgis/rest/services/Parcels/FeatureServer/0",
+          fields: YAKIMA_FIELDS,
+          ownerCompose: { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME", middle: "MIDDLE_NAME" },
+          computed: { total_value: { sum: ["MKT_LAND", "MKT_IMPVT"], label: "Market land + improvement value" } },
+          notes: "Hosted copy; attribute coverage confirmed at runtime."
+        }
+      ]
+    },
+    {
+      key: "kitsap",
+      name: "Kitsap County",
+      counties: ["Kitsap"],
+      useCodeScheme: "county",
+      assessorLink: "https://psearch.kitsap.gov/pdetails/Details?parcel={parcel}&page=general",
+      sources: [
+        {
+          id: "kitsap-agol-parcels",
+          geometry: true,
+          confidence: "guess",
+          name: "Parcels (Kitsap County ArcGIS Online)",
+          publisher: "Kitsap County GIS",
+          url: "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/Parcels/FeatureServer/0",
+          fields: {
+            parcel_id: ["RP_ACCT_ID", "APN", "ACCT_NO"],
+            owner: ["CONTACT_NAME", "OWNER", "TAXPAYER"],
+            situs_address: ["SITE_ADDR"],
+            land_acres: ["POLY_ACRES", "ACRES"],
+            use_code: ["PROP_CLASS", "PROPERTY_CLASS"]
+          },
+          notes: "County hosted parcel layer; attributes resolved from the live schema."
+        },
+        {
+          id: "kitsap-health-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Kitsap Parcels (Kitsap Public Health District GIS)",
+          publisher: "Kitsap Public Health District (county parcel data)",
+          url: "https://secure.kitsappublichealth.org/agsserver/rest/services/KPHDGISPUB/KitsapParcelsPub/MapServer/0",
+          fields: { parcel_id: ["ACCT_NO", "TaxID", "RP_ACCT_ID"], owner: ["OWNER", "TAXPAYER", "CONTACT_NAME"] },
+          notes: "Parcel boundaries keyed by account number; other attributes resolved at runtime."
+        }
+      ]
+    },
+    {
+      key: "clark",
+      name: "Clark County",
+      counties: ["Clark"],
+      useCodeScheme: "county",
+      assessorLink: "https://gis.clark.wa.gov/gishome/Property/?pid=findSN&account={parcel}",
+      sources: [
+        {
+          id: "clark-taxlots-public",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Taxlots for Public Use (Clark County GIS)",
+          publisher: "Clark County GIS / Assessor",
+          url: "https://services2.arcgis.com/ylxwjFBdCPBzP16d/arcgis/rest/services/TaxlotsforPublicUse/FeatureServer/0",
+          fields: CLARK_FIELDS,
+          computed: { total_value: { sum: ["MktLandVal", "MktBldgVal"], label: "Market land + building value" } },
+          notes: "County taxlots with owner, taxable total value, market land/building values and GIS acres."
+        },
+        {
+          id: "clark-taxlots-public-legacy",
+          geometry: true,
+          confidence: "likely",
+          name: "Taxlots Public (Clark County GIS, earlier service)",
+          publisher: "Clark County GIS",
+          url: "https://services2.arcgis.com/ylxwjFBdCPBzP16d/arcgis/rest/services/TaxlotsPublic/FeatureServer/0",
+          fields: CLARK_FIELDS,
+          computed: { total_value: { sum: ["MktLandVal", "MktBldgVal"], label: "Market land + building value" } },
+          notes: "Earlier service name; fallback only."
+        },
+        {
+          id: "clark-enterprise-taxlots",
+          geometry: true,
+          confidence: "likely",
+          name: "TaxlotsPublic_Singlepart (Clark County Enterprise)",
+          publisher: "Clark County GIS",
+          url: "https://gis.clark.wa.gov/arcgisfed/rest/services/Hosted/TaxlotsPublic_Singlepart/FeatureServer/0",
+          fields: CLARK_FIELDS,
+          computed: { total_value: { sum: ["MktLandVal", "MktBldgVal"], label: "Market land + building value" } },
+          notes: "County-hosted copy; fallback only."
         }
       ]
     }
@@ -2171,7 +2490,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           const present = spec.sum.filter((f) => info.fieldNames.some((n) => n.toLowerCase() === f.toLowerCase()));
           missingComputed[attr] = present.length === spec.sum.length ? null : spec.sum.filter((f) => !present.includes(f));
         }
-        return { info, fieldMap: map, how, missingComputed };
+        const domains = {};
+        for (const f of info.fields) {
+          const cv = f.domain?.codedValues;
+          if (Array.isArray(cv) && cv.length) domains[f.name.toLowerCase()] = new Map(cv.map((c) => [String(c.code), String(c.name)]));
+        }
+        return { info, fieldMap: map, how, missingComputed, domains };
       })();
       layerPrep.set(source.url, p);
       p.catch(() => layerPrep.delete(source.url));
@@ -2197,6 +2521,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     }
     return any ? total : null;
   }
+  function decodeDomain(prep, fieldName, value) {
+    if (!fieldName || value === null || value === void 0 || value === "") return null;
+    const dom = prep.domains?.[fieldName.toLowerCase()];
+    if (!dom) return null;
+    return dom.get(String(value)) ?? null;
+  }
   function extractAttrs(props, prep, source) {
     const m = prep.fieldMap;
     const out = {
@@ -2217,6 +2547,24 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       county: cleanText(getField(props, m.county)),
       _sourceFields: {}
     };
+    const countyName = decodeDomain(prep, m.county, getField(props, m.county));
+    if (countyName) out.county = countyName;
+    if (!out.use_description) {
+      const useName = decodeDomain(prep, m.use_code, getField(props, m.use_code));
+      if (useName) {
+        out.use_description = useName;
+        out._sourceFields.use_description = `${m.use_code} (domain)`;
+      }
+    }
+    if (!out.owner && source.ownerCompose) {
+      const c = source.ownerCompose;
+      const org = cleanText(getField(props, c.org));
+      const last = cleanText(getField(props, c.last));
+      const first = cleanText(getField(props, c.first));
+      const middle = cleanText(getField(props, c.middle));
+      out.owner = org || [last, [first, middle].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+      if (out.owner) out._sourceFields.owner = [c.org, c.last, c.first, c.middle].filter(Boolean).join(" / ");
+    }
     for (const [attr, spec] of Object.entries(source.computed || {})) {
       if (out[attr] === null || out[attr] === void 0 || out[attr] === "") {
         const v = sumFields(props, spec.sum);
@@ -2251,6 +2599,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (attrs.use_description) return attrs.use_description;
     const code = attrs.use_code;
     if (!code) return "";
+    const combined = String(code).match(/^(\d{1,4})\s*[-:]?\s+([A-Za-z].*)$/);
+    if (combined) return `${combined[2].trim()} (${combined[1]})`;
     if (provider.useCodeScheme === "dor" || provider.useCodeScheme === "dor-prefix") {
       const d = decodeDOR(code);
       if (d) return provider.useCodeScheme === "dor" ? d : `${d} (${code})`;
@@ -2261,7 +2611,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const geometry = feature.geometry;
     const bbox = geometryBBox(geometry);
     const parcelId = attrs.parcel_id || String(feature.id ?? "");
-    const key = `${provider.key}:${normalizeParcelId(parcelId) || `oid${feature.id}`}`;
+    const key = `${provider.key}:${normalizeParcelId(parcelId) || "na"}:${feature.id ?? ""}`;
     let value = null;
     let valueKind = "none";
     if (attrs.taxable_value !== null && attrs.taxable_value !== void 0) {
@@ -2336,6 +2686,19 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       this.providers = providers;
       this.statewide = statewide;
       this.countyBBoxes = counties.features.map((f) => ({ f, bbox: geometryBBox(f.geometry), name: f.properties.name }));
+      this.fipsToName = /* @__PURE__ */ new Map();
+      for (const f of counties.features) {
+        const fips = String(f.properties.fips || "");
+        const three = fips.slice(-3);
+        for (const k of [fips, three, String(Number(three))]) if (k) this.fipsToName.set(k, f.properties.name);
+      }
+    }
+    /** Normalizes a county attribute (name or FIPS code) to the county name. */
+    countyName(value) {
+      const v = String(value ?? "").trim();
+      if (!v) return "";
+      if (/^\d+$/.test(v)) return this.fipsToName.get(v) || this.fipsToName.get(String(Number(v))) || v;
+      return v.replace(/\s+county$/i, "");
     }
     /** Coarse county polygons touching the bbox (expanded by a safety margin). */
     countiesForBBox(bbox, marginM = 1500) {
@@ -2440,7 +2803,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
             if (k) byId.set(k, attrs);
           }
           enrichMaps.push({ source, byId, prep });
-          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: fc.features.length, role: "enrich", fieldMap: prep.fieldMap, county });
+          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: fc.features.length, role: "enrich", fieldMap: prep.fieldMap, county, confidence: source.confidence });
         } catch (err) {
           report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: "enrich", error: err.message || String(err), county });
         }
@@ -2450,7 +2813,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         const props = f.properties || {};
         const attrs = extractAttrs(props, primaryPrep, primary);
         attrs._sourceName = primary.name;
-        const featureCounty = attrs.county || county || provider.counties[0];
+        if (attrs.county) attrs.county = this.countyName(attrs.county);
+        const featureCounty = attrs.county || county || (provider.counties[0] !== "*" ? provider.counties[0] : "");
         if (onlyCounties && featureCounty && !onlyCounties.has(String(featureCounty).toLowerCase())) continue;
         const k = normalizeParcelId(attrs.parcel_id);
         const extras = k ? enrichMaps.map((e) => e.byId.get(k)).filter(Boolean) : [];
@@ -2474,22 +2838,21 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         how: primaryPrep.how,
         layerName: primaryPrep.info.name,
         county,
-        errors
+        errors,
+        confidence: primary.confidence
       });
       return true;
     }
   };
 
   // js/data.js
-  var import_meta = {};
   var cache = /* @__PURE__ */ new Map();
   async function loadData(name) {
     if (cache.has(name)) return cache.get(name);
     const p = (async () => {
       const inline = typeof document !== "undefined" ? document.getElementById(`data-${name}`) : null;
       if (inline) return JSON.parse(inline.textContent);
-      const base = new URL(".", import_meta.url);
-      const res = await fetch(new URL(`../data/${name}.json`, base));
+      const res = await fetch(new URL(`data/${name}.json`, document.baseURI));
       if (!res.ok) throw new Error(`Failed to load data/${name}.json (${res.status})`);
       return res.json();
     })();
@@ -2917,6 +3280,57 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       setTimeout(finish, timeoutMs);
     });
   }
+  var ROWS_PER_COLUMN = 52;
+  function buildPrintTable(table) {
+    if (!table) return null;
+    const rows = [...table.querySelectorAll("tbody tr")];
+    if (!rows.length) return null;
+    const headers = [...table.querySelectorAll("thead th")];
+    const keep = headers.map((th) => ["id", "owner", "value", "acres", "use"].includes(th.dataset.key));
+    const cols = Math.max(1, Math.ceil(rows.length / ROWS_PER_COLUMN));
+    const perCol = Math.ceil(rows.length / cols);
+    const wrap = document.createElement("div");
+    wrap.className = "print-table";
+    wrap.style.setProperty("--cols", String(cols));
+    for (let c = 0; c < cols; c++) {
+      const t = document.createElement("table");
+      t.className = "parcels print";
+      const thead = document.createElement("thead");
+      const hr = document.createElement("tr");
+      headers.forEach((th, i) => {
+        if (!keep[i]) return;
+        const h = document.createElement("th");
+        h.className = th.className;
+        h.textContent = th.textContent.replace(/[▲▼]/g, "").trim();
+        hr.appendChild(h);
+      });
+      thead.appendChild(hr);
+      t.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      for (const row of rows.slice(c * perCol, (c + 1) * perCol)) {
+        const r = document.createElement("tr");
+        r.className = row.className;
+        [...row.children].forEach((td, i) => {
+          if (!keep[i]) return;
+          const cell = td.cloneNode(true);
+          r.appendChild(cell);
+        });
+        tbody.appendChild(r);
+      }
+      t.appendChild(tbody);
+      wrap.appendChild(t);
+    }
+    const foot = table.querySelector("tfoot");
+    if (foot) {
+      const totals = document.createElement("div");
+      totals.className = "print-totals";
+      const cells = [...foot.querySelectorAll("td")];
+      const byKey = Object.fromEntries(headers.map((th, i) => [th.dataset.key, cells[i]?.textContent.trim() || ""]));
+      totals.textContent = `${byKey.id} parcels \xB7 ${byKey.acres} acres \xB7 ${byKey.value} total value`;
+      wrap.appendChild(totals);
+    }
+    return wrap;
+  }
   async function printExhibit({ map, title, subtitle, bounds, footerLeft = "" }) {
     const body = document.body;
     if (body.classList.contains("print-mode")) return;
@@ -2929,9 +3343,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const results = document.getElementById("results");
     const wasCollapsed = results.classList.contains("collapsed");
     results.classList.remove("collapsed");
+    const printTable = buildPrintTable(document.querySelector("#table-wrap table.parcels"));
+    if (printTable) results.appendChild(printTable);
     body.classList.add("print-mode");
     const restore = () => {
       body.classList.remove("print-mode");
+      printTable?.remove();
       if (wasCollapsed) results.classList.add("collapsed");
       map.invalidateSize({ animate: false });
       map.setView(prevCenter, prevZoom, { animate: false });
@@ -3316,7 +3733,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const r = radiusMeters();
     const poly = circlePolygon([state.pin.lon, state.pin.lat], r, RING_DEFAULTS.segments);
     const latlngs = poly.coordinates[0].map(([lon, lat]) => [lat, lon]);
-    if (!state.ringLayer) state.ringLayer = L.polygon(latlngs, ringStyle()).addTo(state.map);
+    if (!state.svgRenderer) state.svgRenderer = L.svg({ padding: 0.5 });
+    if (!state.ringLayer) state.ringLayer = L.polygon(latlngs, { ...ringStyle(), renderer: state.svgRenderer }).addTo(state.map);
     else {
       state.ringLayer.setLatLngs(latlngs);
       state.ringLayer.setStyle(ringStyle());
@@ -3514,8 +3932,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       <div class="name">${escapeHtml(s.providerName || s.provider)}${s.role === "enrich" ? ' <span class="muted">(attribute join)</span>' : ""}</div>
       <div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></div>
       <div>${s.ok ? `<span class="status-ok">online</span> \xB7 ${s.count} record${s.count === 1 ? "" : "s"} in query envelope${s.truncated ? " (truncated)" : ""}` : `<span class="status-err">unavailable</span> \xB7 ${escapeHtml(s.error || "")}`}</div>
-      ${mapRows.length ? `<div class="map">${mapRows.join(" \xB7 ")}</div>` : ""}
-      ${s.ok && !fm.owner && s.role === "primary" ? '<div class="map">This layer does not publish owner names.</div>' : ""}
+      ${mapRows.length ? `<div class="fmap">${mapRows.join(" \xB7 ")}</div>` : ""}
+      ${s.ok && !fm.owner && s.role === "primary" ? '<div class="fmap">This layer does not publish owner names.</div>' : ""}
+      ${s.confidence && s.confidence !== "confirmed" ? `<div class="fmap">Endpoint ${escapeHtml(s.confidence === "likely" ? "documented but not independently verified" : "unverified; schema resolved at runtime")}.</div>` : ""}
     </div>`);
     }
     el.innerHTML = items.join("");

@@ -32,7 +32,14 @@ async function prepareSource(source, { signal } = {}) {
         const present = spec.sum.filter((f) => info.fieldNames.some((n) => n.toLowerCase() === f.toLowerCase()));
         missingComputed[attr] = present.length === spec.sum.length ? null : spec.sum.filter((f) => !present.includes(f));
       }
-      return { info, fieldMap: map, how, missingComputed };
+      // Coded-value domains (e.g. LANDUSE_CD 11 -> "Household, single family units",
+      // COUNTY_NM "53" -> "Pierce") let us show names instead of codes.
+      const domains = {};
+      for (const f of info.fields) {
+        const cv = f.domain?.codedValues;
+        if (Array.isArray(cv) && cv.length) domains[f.name.toLowerCase()] = new Map(cv.map((c) => [String(c.code), String(c.name)]));
+      }
+      return { info, fieldMap: map, how, missingComputed, domains };
     })();
     layerPrep.set(source.url, p);
     p.catch(() => layerPrep.delete(source.url));
@@ -61,6 +68,13 @@ function sumFields(props, names) {
   return any ? total : null;
 }
 
+function decodeDomain(prep, fieldName, value) {
+  if (!fieldName || value === null || value === undefined || value === '') return null;
+  const dom = prep.domains?.[fieldName.toLowerCase()];
+  if (!dom) return null;
+  return dom.get(String(value)) ?? null;
+}
+
 /** Extracts normalized attributes from one source's feature properties. */
 function extractAttrs(props, prep, source) {
   const m = prep.fieldMap;
@@ -82,6 +96,15 @@ function extractAttrs(props, prep, source) {
     county: cleanText(getField(props, m.county)),
     _sourceFields: {},
   };
+  const countyName = decodeDomain(prep, m.county, getField(props, m.county));
+  if (countyName) out.county = countyName;
+  if (!out.use_description) {
+    const useName = decodeDomain(prep, m.use_code, getField(props, m.use_code));
+    if (useName) {
+      out.use_description = useName;
+      out._sourceFields.use_description = `${m.use_code} (domain)`;
+    }
+  }
   // Some assessors split owner into organisation / last / first / middle name fields.
   if (!out.owner && source.ownerCompose) {
     const c = source.ownerCompose;
@@ -143,7 +166,9 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
   const geometry = feature.geometry;
   const bbox = geometryBBox(geometry);
   const parcelId = attrs.parcel_id || String(feature.id ?? '');
-  const key = `${provider.key}:${normalizeParcelId(parcelId) || `oid${feature.id}`}`;
+  // Parcel numbers are not always unique (stacked condominium units, split parcels), so the
+  // key also carries the layer object id, which is stable across queries of the same layer.
+  const key = `${provider.key}:${normalizeParcelId(parcelId) || 'na'}:${feature.id ?? ''}`;
 
   let value = null;
   let valueKind = 'none';
@@ -223,6 +248,21 @@ export class ParcelService {
     this.providers = providers;
     this.statewide = statewide;
     this.countyBBoxes = counties.features.map((f) => ({ f, bbox: geometryBBox(f.geometry), name: f.properties.name }));
+    // "53067", "067", "67" -> "Thurston": the statewide layer stores county FIPS numbers.
+    this.fipsToName = new Map();
+    for (const f of counties.features) {
+      const fips = String(f.properties.fips || '');
+      const three = fips.slice(-3);
+      for (const k of [fips, three, String(Number(three))]) if (k) this.fipsToName.set(k, f.properties.name);
+    }
+  }
+
+  /** Normalizes a county attribute (name or FIPS code) to the county name. */
+  countyName(value) {
+    const v = String(value ?? '').trim();
+    if (!v) return '';
+    if (/^\d+$/.test(v)) return this.fipsToName.get(v) || this.fipsToName.get(String(Number(v))) || v;
+    return v.replace(/\s+county$/i, '');
   }
 
   /** Coarse county polygons touching the bbox (expanded by a safety margin). */
@@ -338,7 +378,8 @@ export class ParcelService {
       const props = f.properties || {};
       const attrs = extractAttrs(props, primaryPrep, primary);
       attrs._sourceName = primary.name;
-      const featureCounty = attrs.county || county || provider.counties[0];
+      if (attrs.county) attrs.county = this.countyName(attrs.county);
+      const featureCounty = attrs.county || county || (provider.counties[0] !== '*' ? provider.counties[0] : '');
       if (onlyCounties && featureCounty && !onlyCounties.has(String(featureCounty).toLowerCase())) continue;
       const k = normalizeParcelId(attrs.parcel_id);
       const extras = k ? enrichMaps.map((e) => e.byId.get(k)).filter(Boolean) : [];

@@ -99,7 +99,7 @@ export async function getLayerInfo(layerUrl, { signal, force = false } = {}) {
     if (!info || (!info.fields && !info.geometryType && !info.type)) {
       throw new ArcGISError('Not a layer (no fields/geometryType in metadata)', { url, code: 'notlayer' });
     }
-    const fields = (info.fields || []).map((f) => ({ name: f.name, alias: f.alias || f.name, type: f.type, length: f.length }));
+    const fields = (info.fields || []).map((f) => ({ name: f.name, alias: f.alias || f.name, type: f.type, length: f.length, domain: f.domain || null }));
     const formats = String(info.supportedQueryFormats || '').toLowerCase();
     const aqc = info.advancedQueryCapabilities || {};
     const oid = info.objectIdField || fields.find((f) => f.type === 'esriFieldTypeOID')?.name || 'OBJECTID';
