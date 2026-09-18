@@ -42,7 +42,8 @@ test('heuristics resolve a King County style schema', () => {
     { name: 'OBJECTID', type: 'esriFieldTypeOID' }, 'PIN', 'MAJOR', 'MINOR', 'ADDR_FULL', 'TAXPAYERNAME',
     { name: 'APPRLNDVAL', type: 'esriFieldTypeDouble' }, { name: 'APPR_IMPR', type: 'esriFieldTypeDouble' },
     { name: 'TAX_LNDVAL', type: 'esriFieldTypeDouble' }, { name: 'TAX_IMPR', type: 'esriFieldTypeDouble' },
-    'PRESENTUSE', { name: 'LOTSQFT', type: 'esriFieldTypeDouble' }, 'PROPTYPE', 'KCTP_CITY',
+    'PRESENTUSE', { name: 'LOTSQFT', type: 'esriFieldTypeDouble' }, 'PROPTYPE', 'KCTP_CITY', 'CTYNAME',
+    { name: 'Shape_Area', type: 'esriFieldTypeDouble' },
   ]);
   const { map } = resolveFieldMap(info);
   assert.equal(map.parcel_id, 'PIN');
@@ -52,7 +53,14 @@ test('heuristics resolve a King County style schema', () => {
   assert.equal(map.improvement_value, 'APPR_IMPR');
   assert.equal(map.use_code, 'PRESENTUSE');
   assert.equal(map.land_sqft, 'LOTSQFT');
-  assert.equal(map.situs_city, 'KCTP_CITY');
+  assert.equal(map.situs_city, 'CTYNAME', 'taxpayer mailing city must not be taken as the situs city');
+});
+
+test('native-unit area fields are never used as square feet', () => {
+  const info = mk([{ name: 'OBJECTID', type: 'esriFieldTypeOID' }, 'PID_NUM', { name: 'Shape_Area', type: 'esriFieldTypeDouble' }, { name: 'GIS_AREA', type: 'esriFieldTypeDouble' }, 'KCTP_CITY']);
+  const { map } = resolveFieldMap(info);
+  assert.equal(map.land_sqft, null);
+  assert.equal(map.situs_city, null);
 });
 
 test('heuristics resolve the WA statewide DOR schema without an owner', () => {

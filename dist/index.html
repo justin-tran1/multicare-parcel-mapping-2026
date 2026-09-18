@@ -1520,6 +1520,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         });
       } catch (err) {
         if (err instanceof ArcGISError) throw err;
+        if (signal?.aborted) throw new ArcGISError("Cancelled", { url, code: "aborted", cause: err });
         if (ctrl.signal.aborted && ctrl.signal.reason instanceof ArcGISError) throw ctrl.signal.reason;
         throw new ArcGISError(`Network error (blocked, offline, or no CORS): ${err.message}`, { url, code: "network", cause: err });
       }
@@ -1617,7 +1618,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       } else {
         polys = outers.map((o) => [o]);
         for (const hole of holes) {
-          const probe = hole[0];
+          const probe = labelPoint([[hole]]);
           let placed = false;
           for (const poly of polys) {
             if (pointInRing(probe, poly[0])) {
@@ -1793,8 +1794,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       prefer: /(situs_?addr(ess)?$|full|site_?addr(ess)?$|addr_?full)/i
     },
     situs_city: {
-      include: /(situs|site|prop|property|location)?.*city/i,
-      exclude: /(owner|taxpayer|mail|zip|state|county|link|url)/i
+      include: /((situs|site|prop|property|location|postal|sit)_?city|^city$|^city_?(name|nm)$|ctyname|^situs_?cty)/i,
+      exclude: /(owner|taxpayer|kctp|mail|deliv|zip|state|county|link|url|tax_?payer)/i
     },
     taxable_value: {
       include: /(taxable|tax_?val|taxval|tax_?value|tx_?val)/i,
@@ -1822,7 +1823,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       prefer: /(land|deeded|legal|assess|tax|gross|parcel|total)/i
     },
     land_sqft: {
-      include: /(sq_?ft|sqft|square_?f|lot_?size|lotsz|land_?sf|land_?area|lot_?area|parcel_?area|gis_?area|shape_?area|area_?sf)/i,
+      // Only fields that are unambiguously square feet. Generic "area" fields (Shape_Area,
+      // GIS_AREA, LAND_AREA) are in the layer's native units and are deliberately excluded;
+      // acreage is computed from the geometry instead.
+      include: /(sq_?ft|sqft|square_?f|lot_?size|lotsz|land_?sf|area_?sf|lot_?sq)/i,
       exclude: /(bldg|building|impr|improv|living|gross_?bldg|floor|footprint|nra|gla|desc|code)/i,
       prefer: /(lot|land|parcel|legal|deeded)/i
     },
@@ -1884,9 +1888,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         let bestScore = 0;
         for (const f of fields) {
           if (used.has(f.name)) continue;
-          if (f.type === "esriFieldTypeOID" || f.type === "esriFieldTypeGeometry" || /^shape([._]|$)/i.test(f.name)) {
-            if (attr !== "land_sqft" || !/shape[._]?area/i.test(f.name)) continue;
-          }
+          if (f.type === "esriFieldTypeOID" || f.type === "esriFieldTypeGeometry" || /^shape([._]|$)/i.test(f.name)) continue;
           let s = score(f, HEURISTICS[attr]);
           if (s && VALUE_ATTRS.has(attr)) {
             if (NUMERIC_TYPES.has(f.type)) s += 10;
@@ -2097,7 +2099,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         {
           id: "tacoma-ats-parcels-alt-host",
           geometry: true,
-          enrich: true,
+          enrich: false,
           confidence: "guess",
           name: "Pierce County Tax Parcels with Assessor-Treasurer info (City of Tacoma GIS, alternate host)",
           publisher: "City of Tacoma ITD / Pierce County Assessor-Treasurer",
@@ -2939,10 +2941,28 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return String(id ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
   }
   var layerPrep = /* @__PURE__ */ new Map();
+  function withSignal(promise, signal) {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(new ArcGISError("Cancelled", { code: "aborted" }));
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(new ArcGISError("Cancelled", { code: "aborted" }));
+      signal.addEventListener("abort", onAbort, { once: true });
+      promise.then(
+        (v) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(v);
+        },
+        (e) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(e);
+        }
+      );
+    });
+  }
   async function prepareSource(source, { signal } = {}) {
     if (!layerPrep.has(source.url)) {
       const p = (async () => {
-        const info = await getLayerInfo(source.url, { signal });
+        const info = await getLayerInfo(source.url);
         const { map, how } = resolveFieldMap(info, source.fields || {});
         const missingComputed = {};
         for (const [attr, spec] of Object.entries(source.computed || {})) {
@@ -2959,8 +2979,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       layerPrep.set(source.url, p);
       p.catch(() => layerPrep.delete(source.url));
     }
-    return layerPrep.get(source.url);
+    return withSignal(layerPrep.get(source.url), signal);
   }
+  var isAbort = (err) => err?.code === "aborted" || err?.name === "AbortError";
   function getField(props, name) {
     if (!name) return void 0;
     if (name in props) return props[name];
@@ -3079,7 +3100,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const geometry = feature.geometry;
     const bbox = geometryBBox(geometry);
     const parcelId = attrs.parcel_id || String(feature.id ?? "");
-    const key = `${provider.key}:${normalizeParcelId(parcelId) || "na"}:${feature.id ?? ""}`;
+    const normId = normalizeParcelId(parcelId);
+    const key = `${provider.key}:${normId || "na"}:${feature.id ?? ""}`;
+    const markKey = normId ? `${provider.key}:${normId}` : key;
     let value = null;
     let valueKind = "none";
     if (attrs.taxable_value !== null && attrs.taxable_value !== void 0) {
@@ -3110,6 +3133,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (link && !/^https?:\/\//i.test(link)) link = "";
     return {
       key,
+      markKey,
       id: null,
       // assigned when numbered within a ring
       provider: provider.key,
@@ -3123,7 +3147,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       ownerAddress: attrs.owner_address || "",
       situs: attrs.situs_address || "",
       city: attrs.situs_city || "",
-      county: attrs.county || county || provider.counties[0] || "",
+      county: attrs.county || county || (provider.counties[0] !== "*" ? provider.counties[0] : "") || "",
       value,
       valueKind,
       taxableValue: attrs.taxable_value,
@@ -3253,6 +3277,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           primaryFC = fc;
           break;
         } catch (err) {
+          if (isAbort(err) || signal?.aborted) throw err;
           errors.push({ source: source.name, url: source.url, error: err.message || String(err) });
           report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, error: err.message || String(err), county });
         }
@@ -3274,9 +3299,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           enrichMaps.push({ source, byId, prep });
           report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: fc.features.length, role: "enrich", fieldMap: prep.fieldMap, county, confidence: source.confidence });
         } catch (err) {
+          if (isAbort(err) || signal?.aborted) throw err;
           report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: "enrich", error: err.message || String(err), county });
         }
       }));
+      if (signal?.aborted) throw new ArcGISError("Cancelled", { code: "aborted" });
       let added = 0;
       for (const f of primaryFC.features) {
         const props = f.properties || {};
@@ -3472,10 +3499,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     // Care Net pregnancy centers (e.g. "CARE NET/Allenmore Children & Youth")
     "VALLEY MEDICAL CENTER",
     // Renton, UW Medicine
-    "GOOD SAMARITAN SOCIETY",
+    "GOOD SAMARITAN SOCIETY"
     // Evangelical Lutheran Good Samaritan Society senior living
-    "MULTICARE HOME HEALTH LLC OF"
-    // placeholder for unrelated look-alikes; keep list editable
   ];
   function normalizeName(s) {
     return String(s || "").toUpperCase().replace(/&/g, " AND ").replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -3488,7 +3513,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (!name) return null;
     for (const fp of falsePositives) {
       const fpn = normalizeName(fp);
-      if (fpn && name.includes(fpn) && !name.includes("MULTICARE") && !name.includes("MULTI CARE")) return null;
+      if (fpn && ` ${name} `.includes(` ${fpn} `) && !name.includes("MULTICARE") && !name.includes("MULTI CARE")) return null;
     }
     let best = null;
     for (const p of patterns) {
@@ -3939,17 +3964,16 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (state.settings.ringOnly && !inStudy && state.study.records.length) s = { ...s, opacity: 0.2, fillOpacity: s.fillOpacity * 0.3 };
     return s;
   }
+  function markOf(rec) {
+    return state.occupiedMarks[rec.markKey] ?? state.occupiedMarks[rec.key];
+  }
   function classifyRecord(rec) {
     rec.multicare = classifyOwner(rec.owner, { patterns: state.patterns, county: rec.county });
-    rec.occupied = Boolean(state.occupiedMarks[rec.key]) || state.locations.some((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-    if (rec.occupied && !rec.multicare && !state.occupiedMarks[rec.key]) {
-      const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-      rec.occupiedBy = loc ? loc.name : "";
-    } else if (state.occupiedMarks[rec.key]) {
-      rec.occupiedBy = typeof state.occupiedMarks[rec.key] === "string" ? state.occupiedMarks[rec.key] : "Marked by user";
-    } else {
-      rec.occupiedBy = "";
-    }
+    const mark = markOf(rec);
+    const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
+    rec.occupied = Boolean(mark) || Boolean(loc);
+    if (mark) rec.occupiedBy = typeof mark === "string" ? mark : "Marked by user";
+    else rec.occupiedBy = loc ? loc.name : "";
   }
   function initMap() {
     const map = L.map("map", { preferCanvas: true, zoomControl: true, worldCopyJump: false, minZoom: 5 });
@@ -4072,7 +4096,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     rows.push(["Use", escapeHtml(rec.useText || rec.useCode || "n/a") + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : "")]);
     if (rec.county) rows.push(["County", escapeHtml(rec.county)]);
     if (rec.distanceM !== null && rec.distanceM !== void 0) rows.push(["Distance", rec.distanceM === 0 ? "contains the pin" : formatDistance(rec.distanceM, state.ring.unit)]);
-    const marked = Boolean(state.occupiedMarks[rec.key]);
+    const marked = Boolean(markOf(rec));
     return `<div class="popup">
     <h3>${rec.id ? `#${rec.id} ` : ""}${escapeHtml(rec.owner || rec.situs || rec.parcelId || "Parcel")}${badges.join("")}</h3>
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
@@ -4090,8 +4114,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const popup = L.popup({ maxWidth: 360, autoPanPadding: [40, 40] }).setLatLng(latlng).setContent(popupHtml(rec)).openOn(state.map);
     const el = popup.getElement();
     el.querySelector('[data-action="toggle-occupied"]')?.addEventListener("click", () => {
-      if (state.occupiedMarks[rec.key]) delete state.occupiedMarks[rec.key];
-      else state.occupiedMarks[rec.key] = "Marked by user";
+      if (markOf(rec)) {
+        delete state.occupiedMarks[rec.markKey];
+        delete state.occupiedMarks[rec.key];
+      } else state.occupiedMarks[rec.markKey] = "Marked by user";
       saveJSON("occupied", state.occupiedMarks);
       reclassifyAll();
       popup.setContent(popupHtml(rec));
@@ -4252,8 +4278,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     studyTimer = setTimeout(() => runStudy({ fit: false }), 300);
   }
   async function runStudy({ fit = false } = {}) {
-    if (!state.pin || !state.service) return;
+    if (!state.pin) return;
     drawRing();
+    if (!state.service) return;
     if (state.study.abort) state.study.abort.abort();
     const ctrl = new AbortController();
     state.study.abort = ctrl;
@@ -4447,21 +4474,22 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const h = location.hash.replace(/^#/, "");
     if (!h) return null;
     const p = new URLSearchParams(h);
+    if (!p.has("lat") || !p.has("lon")) return null;
     const lat = Number(p.get("lat"));
     const lon = Number(p.get("lon"));
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
     const r = Number(p.get("r"));
     const u = p.get("u");
     if (Number.isFinite(r) && r > 0 && UNIT_LABELS[u]) {
-      state.ring.radius = r;
       state.ring.unit = u;
+      state.ring.radius = Math.min(r, Number(fromMeters(MAX_RING_RADIUS_M, u).toFixed(2)));
     }
     return { lat, lon, label: p.get("q") || "" };
   }
-  var SLIDER_RANGES = { yd: [25, 3e3, 5], ft: [50, 9e3, 10], m: [25, 3e3, 5], mi: [0.05, 5, 0.05], km: [0.05, 8, 0.05] };
-  function syncRingControls() {
+  var SLIDER_RANGES = { yd: [25, 8800, 5], ft: [50, 26400, 10], m: [25, 8e3, 5], mi: [0.05, 5, 0.05], km: [0.05, 8, 0.05] };
+  function syncRingControls({ skipRadiusInput = false } = {}) {
     const r = state.ring;
-    $("#radius").value = r.radius;
+    if (!skipRadiusInput) $("#radius").value = r.radius;
     $("#unit").value = r.unit;
     const [min, max, step] = SLIDER_RANGES[r.unit] || SLIDER_RANGES.yd;
     const slider = $("#radius-slider");
@@ -4544,22 +4572,26 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       }
     });
     syncRingControls();
-    const onRadius = (v, unit) => {
+    const onRadius = (v, unit, { fromInput = false } = {}) => {
       if (unit) state.ring.unit = unit;
       const n = Number(v);
-      if (Number.isFinite(n) && n > 0) state.ring.radius = n;
+      if (!(Number.isFinite(n) && n > 0)) {
+        if (fromInput) return;
+      } else state.ring.radius = n;
       const maxUnits = fromMeters(MAX_RING_RADIUS_M, state.ring.unit);
       if (state.ring.radius > maxUnits) {
         state.ring.radius = Number(maxUnits.toFixed(2));
         toast(`Radius capped at ${state.ring.radius} ${UNIT_LABELS[state.ring.unit]} to keep result sets manageable.`);
+        $("#radius").value = state.ring.radius;
       }
       saveRing();
-      syncRingControls();
+      syncRingControls({ skipRadiusInput: fromInput });
       updateDefaultTitles();
       if (state.pin) scheduleStudy();
       renderLegend();
     };
-    $("#radius").addEventListener("input", (e) => onRadius(e.target.value));
+    $("#radius").addEventListener("input", (e) => onRadius(e.target.value, null, { fromInput: true }));
+    $("#radius").addEventListener("change", () => syncRingControls());
     $("#radius-slider").addEventListener("input", (e) => onRadius(e.target.value));
     $("#unit").addEventListener("change", (e) => {
       const meters = radiusMeters();
@@ -4727,6 +4759,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (fromHash) {
       state.map.setView([fromHash.lat, fromHash.lon], 16);
       await setPin(fromHash, { reverse: !fromHash.label });
+    } else if (state.pin) {
+      await runStudy({ fit: true });
     } else {
       scheduleViewFetch();
     }

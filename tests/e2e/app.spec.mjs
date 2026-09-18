@@ -152,6 +152,40 @@ test.describe('radius study', () => {
     expect(lines[1]).toContain('MultiCare owned');
   });
 
+  test('cancelling an in-flight study does not demote the primary owner-bearing layer', async ({ page }) => {
+    const log = await installMockArcGIS(page, { parcels, delayMs: 350 });
+    await page.goto(hashFor());
+    // Re-run the study twice while the first metadata request is still in flight.
+    await page.waitForTimeout(80);
+    await page.fill('#radius', '200');
+    await page.dispatchEvent('#radius', 'input');
+    await page.waitForTimeout(60);
+    await page.fill('#radius', '220');
+    await page.dispatchEvent('#radius', 'input');
+    const n = expectedHits(toMeters(220, 'yd')).length;
+    await expect(page.locator('table.parcels tbody tr')).toHaveCount(n, { timeout: 30000 });
+    await expect(page.locator('table.parcels tbody tr').first()).toContainText('MULTICARE HEALTH SYSTEMS');
+    await expect(page.locator('#sources')).not.toContainText('unavailable');
+    await expect(page.locator('#sources')).toContainText('TAXPAYERNAME');
+    // metadata for the Tacoma layer was fetched exactly once despite the cancellations
+    expect(log.tacoma.filter((r) => !r.url.includes('/query')).length).toBe(1);
+  });
+
+  test('a hash without coordinates does not drop a pin at 0,0 and typed radii are not clobbered', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto('/#r=500&u=yd');
+    await page.waitForTimeout(500);
+    await expect(page.locator('.pin-icon')).toHaveCount(0);
+    // typing "0." then "0.5" in miles must not snap back
+    await page.selectOption('#unit', 'mi');
+    await page.fill('#radius', '0.');
+    await page.dispatchEvent('#radius', 'input');
+    await page.fill('#radius', '0.5');
+    await page.dispatchEvent('#radius', 'input');
+    await expect(page.locator('#radius')).toHaveValue('0.5');
+    expect(await page.evaluate(() => window.__parcelApp.state.ring)).toMatchObject({ radius: 0.5, unit: 'mi' });
+  });
+
   test('parcels in view load at zoom 15+ and popups show assessor detail', async ({ page }) => {
     await installMockArcGIS(page, { parcels });
     await page.goto('/');

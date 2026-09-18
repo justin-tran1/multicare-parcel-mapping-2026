@@ -22,10 +22,26 @@ export function normalizeParcelId(id) {
 
 const layerPrep = new Map(); // source.url -> Promise<{info, fieldMap, how}>
 
+/** Rejects with an 'aborted' error when the signal fires, otherwise resolves like `promise`. */
+function withSignal(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new ArcGISError('Cancelled', { code: 'aborted' }));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new ArcGISError('Cancelled', { code: 'aborted' }));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      (e) => { signal.removeEventListener('abort', onAbort); reject(e); },
+    );
+  });
+}
+
+// The metadata fetch is shared by every caller, so it must not be bound to any one caller's
+// abort signal; callers race the shared promise against their own signal instead.
 async function prepareSource(source, { signal } = {}) {
   if (!layerPrep.has(source.url)) {
     const p = (async () => {
-      const info = await getLayerInfo(source.url, { signal });
+      const info = await getLayerInfo(source.url);
       const { map, how } = resolveFieldMap(info, source.fields || {});
       const missingComputed = {};
       for (const [attr, spec] of Object.entries(source.computed || {})) {
@@ -44,8 +60,10 @@ async function prepareSource(source, { signal } = {}) {
     layerPrep.set(source.url, p);
     p.catch(() => layerPrep.delete(source.url));
   }
-  return layerPrep.get(source.url);
+  return withSignal(layerPrep.get(source.url), signal);
 }
+
+const isAbort = (err) => err?.code === 'aborted' || err?.name === 'AbortError';
 
 function getField(props, name) {
   if (!name) return undefined;
@@ -180,7 +198,11 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
   const parcelId = attrs.parcel_id || String(feature.id ?? '');
   // Parcel numbers are not always unique (stacked condominium units, split parcels), so the
   // key also carries the layer object id, which is stable across queries of the same layer.
-  const key = `${provider.key}:${normalizeParcelId(parcelId) || 'na'}:${feature.id ?? ''}`;
+  const normId = normalizeParcelId(parcelId);
+  const key = `${provider.key}:${normId || 'na'}:${feature.id ?? ''}`;
+  // Stable key for user marks: parcel number when there is one (survives layer fallbacks
+  // and object-id reassignment), otherwise the feature key.
+  const markKey = normId ? `${provider.key}:${normId}` : key;
 
   let value = null;
   let valueKind = 'none';
@@ -215,6 +237,7 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
 
   return {
     key,
+    markKey,
     id: null, // assigned when numbered within a ring
     provider: provider.key,
     providerName: provider.name,
@@ -227,7 +250,7 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
     ownerAddress: attrs.owner_address || '',
     situs: attrs.situs_address || '',
     city: attrs.situs_city || '',
-    county: attrs.county || county || provider.counties[0] || '',
+    county: attrs.county || county || (provider.counties[0] !== '*' ? provider.counties[0] : '') || '',
     value,
     valueKind,
     taxableValue: attrs.taxable_value,
@@ -359,6 +382,7 @@ export class ParcelService {
         primaryFC = fc;
         break;
       } catch (err) {
+        if (isAbort(err) || signal?.aborted) throw err;
         errors.push({ source: source.name, url: source.url, error: err.message || String(err) });
         report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, error: err.message || String(err), county });
       }
@@ -382,9 +406,11 @@ export class ParcelService {
         enrichMaps.push({ source, byId, prep });
         report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: fc.features.length, role: 'enrich', fieldMap: prep.fieldMap, county, confidence: source.confidence });
       } catch (err) {
+        if (isAbort(err) || signal?.aborted) throw err;
         report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: 'enrich', error: err.message || String(err), county });
       }
     }));
+    if (signal?.aborted) throw new ArcGISError('Cancelled', { code: 'aborted' });
 
     let added = 0;
     for (const f of primaryFC.features) {

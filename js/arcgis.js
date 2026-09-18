@@ -2,7 +2,7 @@
 // Handles layer metadata discovery, paginated spatial queries (envelope or polygon),
 // GeoJSON or Esri JSON output, and conversion of Esri geometry to GeoJSON.
 
-import { ringSignedArea, pointInRing } from './geometry.js';
+import { ringSignedArea, pointInRing, labelPoint } from './geometry.js';
 
 export class ArcGISError extends Error {
   constructor(message, { code, url, details, cause } = {}) {
@@ -46,6 +46,7 @@ export async function fetchJson(url, { method = 'GET', body = null, timeoutMs = 
       });
     } catch (err) {
       if (err instanceof ArcGISError) throw err;
+      if (signal?.aborted) throw new ArcGISError('Cancelled', { url, code: 'aborted', cause: err });
       if (ctrl.signal.aborted && ctrl.signal.reason instanceof ArcGISError) throw ctrl.signal.reason;
       throw new ArcGISError(`Network error (blocked, offline, or no CORS): ${err.message}`, { url, code: 'network', cause: err });
     }
@@ -166,7 +167,8 @@ export function esriGeometryToGeoJSON(g) {
     } else {
       polys = outers.map((o) => [o]);
       for (const hole of holes) {
-        const probe = hole[0];
+        // probe a point strictly inside the hole (a vertex may sit on the outer boundary)
+        const probe = labelPoint([[hole]]);
         let placed = false;
         for (const poly of polys) {
           if (pointInRing(probe, poly[0])) {

@@ -208,7 +208,7 @@ export const PROVIDERS = [
       {
         id: 'tacoma-ats-parcels-alt-host',
         geometry: true,
-        enrich: true,
+        enrich: false,
         confidence: 'guess',
         name: 'Pierce County Tax Parcels with Assessor-Treasurer info (City of Tacoma GIS, alternate host)',
         publisher: 'City of Tacoma ITD / Pierce County Assessor-Treasurer',

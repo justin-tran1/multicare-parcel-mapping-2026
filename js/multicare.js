@@ -49,7 +49,6 @@ export const FALSE_POSITIVES = [
   'CARE NET', // Care Net pregnancy centers (e.g. "CARE NET/Allenmore Children & Youth")
   'VALLEY MEDICAL CENTER', // Renton, UW Medicine
   'GOOD SAMARITAN SOCIETY', // Evangelical Lutheran Good Samaritan Society senior living
-  'MULTICARE HOME HEALTH LLC OF', // placeholder for unrelated look-alikes; keep list editable
 ];
 
 export function normalizeName(s) {
@@ -75,7 +74,8 @@ export function classifyOwner(ownerName, { patterns = DEFAULT_PATTERNS, county =
   if (!name) return null;
   for (const fp of falsePositives) {
     const fpn = normalizeName(fp);
-    if (fpn && name.includes(fpn) && !name.includes('MULTICARE') && !name.includes('MULTI CARE')) return null;
+    // whole-word containment so "HEALTHCARE NETWORK" is not vetoed by "CARE NET"
+    if (fpn && (` ${name} `).includes(` ${fpn} `) && !name.includes('MULTICARE') && !name.includes('MULTI CARE')) return null;
   }
   let best = null;
   for (const p of patterns) {

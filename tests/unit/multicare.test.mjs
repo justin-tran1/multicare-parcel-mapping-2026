@@ -31,6 +31,7 @@ test('county-restricted patterns only fire in their county', () => {
 
 test('known false positives do not match', () => {
   assert.equal(classifyOwner('CARE NET/Allenmore Children & Youth'), null);
+  assert.equal(classifyOwner('MULTICARE HEALTHCARE NETWORK LLC')?.relationship, 'owned', 'false-positive veto must be whole-word');
   assert.equal(classifyOwner('VALLEY MEDICAL CENTER'), null);
   assert.equal(classifyOwner('Healthcare Realty'), null);
   assert.equal(classifyOwner('Ventas REIT'), null);

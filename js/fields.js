@@ -45,8 +45,8 @@ const HEURISTICS = {
     prefer: /(situs_?addr(ess)?$|full|site_?addr(ess)?$|addr_?full)/i,
   },
   situs_city: {
-    include: /(situs|site|prop|property|location)?.*city/i,
-    exclude: /(owner|taxpayer|mail|zip|state|county|link|url)/i,
+    include: /((situs|site|prop|property|location|postal|sit)_?city|^city$|^city_?(name|nm)$|ctyname|^situs_?cty)/i,
+    exclude: /(owner|taxpayer|kctp|mail|deliv|zip|state|county|link|url|tax_?payer)/i,
   },
   taxable_value: {
     include: /(taxable|tax_?val|taxval|tax_?value|tx_?val)/i,
@@ -74,7 +74,10 @@ const HEURISTICS = {
     prefer: /(land|deeded|legal|assess|tax|gross|parcel|total)/i,
   },
   land_sqft: {
-    include: /(sq_?ft|sqft|square_?f|lot_?size|lotsz|land_?sf|land_?area|lot_?area|parcel_?area|gis_?area|shape_?area|area_?sf)/i,
+    // Only fields that are unambiguously square feet. Generic "area" fields (Shape_Area,
+    // GIS_AREA, LAND_AREA) are in the layer's native units and are deliberately excluded;
+    // acreage is computed from the geometry instead.
+    include: /(sq_?ft|sqft|square_?f|lot_?size|lotsz|land_?sf|area_?sf|lot_?sq)/i,
     exclude: /(bldg|building|impr|improv|living|gross_?bldg|floor|footprint|nra|gla|desc|code)/i,
     prefer: /(lot|land|parcel|legal|deeded)/i,
   },
@@ -145,9 +148,7 @@ export function resolveFieldMap(layerInfo, candidates = {}) {
       let bestScore = 0;
       for (const f of fields) {
         if (used.has(f.name)) continue;
-        if (f.type === 'esriFieldTypeOID' || f.type === 'esriFieldTypeGeometry' || /^shape([._]|$)/i.test(f.name)) {
-          if (attr !== 'land_sqft' || !/shape[._]?area/i.test(f.name)) continue;
-        }
+        if (f.type === 'esriFieldTypeOID' || f.type === 'esriFieldTypeGeometry' || /^shape([._]|$)/i.test(f.name)) continue;
         let s = score(f, HEURISTICS[attr]);
         if (s && VALUE_ATTRS.has(attr)) {
           if (NUMERIC_TYPES.has(f.type)) s += 10;

@@ -156,7 +156,7 @@ function esriPage(features, params, propsOf, pageSize) {
  * Installs route handlers. options.fail = Set of layer URLs that should return HTTP 500.
  * Returns a log of requests per layer.
  */
-export async function installMockArcGIS(page, { parcels = makeParcels(), fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000 } = {}) {
+export async function installMockArcGIS(page, { parcels = makeParcels(), fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0 } = {}) {
   const log = { tacoma: [], pierce: [], wa: [], tiles: 0, other: [] };
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
@@ -164,6 +164,7 @@ export async function installMockArcGIS(page, { parcels = makeParcels(), fail = 
     const params = parseParams(request);
     log[key].push({ url: request.url(), method: request.method(), params: Object.fromEntries(params) });
     if (fail.has(url)) return json(route, { error: { code: 500, message: 'mock failure' } }, 500);
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     const path = new URL(request.url()).pathname;
     if (!path.endsWith('/query')) return json(route, info);
     if (params.get('returnCountOnly') === 'true') return json(route, { count: parcels.filter(envelopeFilter(params)).length });

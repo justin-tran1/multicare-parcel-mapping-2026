@@ -124,17 +124,17 @@ function parcelStyle(rec, inStudy) {
   return s;
 }
 
+function markOf(rec) {
+  return state.occupiedMarks[rec.markKey] ?? state.occupiedMarks[rec.key];
+}
+
 function classifyRecord(rec) {
   rec.multicare = classifyOwner(rec.owner, { patterns: state.patterns, county: rec.county });
-  rec.occupied = Boolean(state.occupiedMarks[rec.key]) || state.locations.some((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-  if (rec.occupied && !rec.multicare && !state.occupiedMarks[rec.key]) {
-    const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-    rec.occupiedBy = loc ? loc.name : '';
-  } else if (state.occupiedMarks[rec.key]) {
-    rec.occupiedBy = typeof state.occupiedMarks[rec.key] === 'string' ? state.occupiedMarks[rec.key] : 'Marked by user';
-  } else {
-    rec.occupiedBy = '';
-  }
+  const mark = markOf(rec);
+  const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
+  rec.occupied = Boolean(mark) || Boolean(loc);
+  if (mark) rec.occupiedBy = typeof mark === 'string' ? mark : 'Marked by user';
+  else rec.occupiedBy = loc ? loc.name : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +276,7 @@ function popupHtml(rec) {
   rows.push(['Use', escapeHtml(rec.useText || rec.useCode || 'n/a') + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : '')]);
   if (rec.county) rows.push(['County', escapeHtml(rec.county)]);
   if (rec.distanceM !== null && rec.distanceM !== undefined) rows.push(['Distance', rec.distanceM === 0 ? 'contains the pin' : formatDistance(rec.distanceM, state.ring.unit)]);
-  const marked = Boolean(state.occupiedMarks[rec.key]);
+  const marked = Boolean(markOf(rec));
   return `<div class="popup">
     <h3>${rec.id ? `#${rec.id} ` : ''}${escapeHtml(rec.owner || rec.situs || rec.parcelId || 'Parcel')}${badges.join('')}</h3>
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
@@ -295,8 +295,10 @@ function openPopup(key, latlng) {
   const popup = L.popup({ maxWidth: 360, autoPanPadding: [40, 40] }).setLatLng(latlng).setContent(popupHtml(rec)).openOn(state.map);
   const el = popup.getElement();
   el.querySelector('[data-action="toggle-occupied"]')?.addEventListener('click', () => {
-    if (state.occupiedMarks[rec.key]) delete state.occupiedMarks[rec.key];
-    else state.occupiedMarks[rec.key] = 'Marked by user';
+    if (markOf(rec)) {
+      delete state.occupiedMarks[rec.markKey];
+      delete state.occupiedMarks[rec.key];
+    } else state.occupiedMarks[rec.markKey] = 'Marked by user';
     saveJSON('occupied', state.occupiedMarks);
     reclassifyAll();
     popup.setContent(popupHtml(rec));
@@ -476,8 +478,9 @@ function scheduleStudy() {
 }
 
 async function runStudy({ fit = false } = {}) {
-  if (!state.pin || !state.service) return;
+  if (!state.pin) return;
   drawRing();
+  if (!state.service) return; // re-run once the county index has loaded (see main)
   if (state.study.abort) state.study.abort.abort();
   const ctrl = new AbortController();
   state.study.abort = ctrl;
@@ -679,14 +682,15 @@ function readHash() {
   const h = location.hash.replace(/^#/, '');
   if (!h) return null;
   const p = new URLSearchParams(h);
+  if (!p.has('lat') || !p.has('lon')) return null;
   const lat = Number(p.get('lat'));
   const lon = Number(p.get('lon'));
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
   const r = Number(p.get('r'));
   const u = p.get('u');
   if (Number.isFinite(r) && r > 0 && UNIT_LABELS[u]) {
-    state.ring.radius = r;
     state.ring.unit = u;
+    state.ring.radius = Math.min(r, Number(fromMeters(MAX_RING_RADIUS_M, u).toFixed(2)));
   }
   return { lat, lon, label: p.get('q') || '' };
 }
@@ -694,11 +698,11 @@ function readHash() {
 // ---------------------------------------------------------------------------
 // Controls wiring
 // ---------------------------------------------------------------------------
-const SLIDER_RANGES = { yd: [25, 3000, 5], ft: [50, 9000, 10], m: [25, 3000, 5], mi: [0.05, 5, 0.05], km: [0.05, 8, 0.05] };
+const SLIDER_RANGES = { yd: [25, 8800, 5], ft: [50, 26400, 10], m: [25, 8000, 5], mi: [0.05, 5, 0.05], km: [0.05, 8, 0.05] };
 
-function syncRingControls() {
+function syncRingControls({ skipRadiusInput = false } = {}) {
   const r = state.ring;
-  $('#radius').value = r.radius;
+  if (!skipRadiusInput) $('#radius').value = r.radius;
   $('#unit').value = r.unit;
   const [min, max, step] = SLIDER_RANGES[r.unit] || SLIDER_RANGES.yd;
   const slider = $('#radius-slider');
@@ -788,22 +792,27 @@ function wireControls() {
 
   // Ring
   syncRingControls();
-  const onRadius = (v, unit) => {
+  const onRadius = (v, unit, { fromInput = false } = {}) => {
     if (unit) state.ring.unit = unit;
     const n = Number(v);
-    if (Number.isFinite(n) && n > 0) state.ring.radius = n;
+    if (!(Number.isFinite(n) && n > 0)) {
+      if (fromInput) return; // let the user keep typing ("0.", empty)
+    } else state.ring.radius = n;
     const maxUnits = fromMeters(MAX_RING_RADIUS_M, state.ring.unit);
     if (state.ring.radius > maxUnits) {
       state.ring.radius = Number(maxUnits.toFixed(2));
       toast(`Radius capped at ${state.ring.radius} ${UNIT_LABELS[state.ring.unit]} to keep result sets manageable.`);
+      $('#radius').value = state.ring.radius;
     }
     saveRing();
-    syncRingControls();
+    // while typing, do not rewrite the number field the user is editing
+    syncRingControls({ skipRadiusInput: fromInput });
     updateDefaultTitles();
     if (state.pin) scheduleStudy();
     renderLegend();
   };
-  $('#radius').addEventListener('input', (e) => onRadius(e.target.value));
+  $('#radius').addEventListener('input', (e) => onRadius(e.target.value, null, { fromInput: true }));
+  $('#radius').addEventListener('change', () => syncRingControls());
   $('#radius-slider').addEventListener('input', (e) => onRadius(e.target.value));
   $('#unit').addEventListener('change', (e) => {
     // convert the current radius into the new unit so the ring size does not jump
@@ -981,6 +990,9 @@ async function main() {
   if (fromHash) {
     state.map.setView([fromHash.lat, fromHash.lon], 16);
     await setPin(fromHash, { reverse: !fromHash.label });
+  } else if (state.pin) {
+    // a pin dropped while the county index was still loading
+    await runStudy({ fit: true });
   } else {
     scheduleViewFetch();
   }
