@@ -56,6 +56,21 @@ test('heuristics resolve a King County style schema', () => {
   assert.equal(map.situs_city, 'CTYNAME', 'taxpayer mailing city must not be taken as the situs city');
 });
 
+test('disabled attributes, id fields and flags are not mapped', () => {
+  const info = mk([
+    { name: 'OBJECTID', type: 'esriFieldTypeOID' }, 'Prop_id', 'MainOwnerID', 't2_OwnerID', 't2_Owner',
+    { name: 'TAXABLE', type: 'esriFieldTypeString', length: 1 }, { name: 'TAXVAL_RSN', type: 'esriFieldTypeString', length: 2 },
+    { name: 'GarageSqFt', type: 'esriFieldTypeDouble' }, 'DEED_HOLDER_ADDRESS_1', 'SITUS_STREET_NAME',
+  ]);
+  const { map, how } = resolveFieldMap(info, { use_code: false });
+  assert.equal(map.owner, 't2_Owner', 'owner ids must not be taken as owner names');
+  assert.equal(map.taxable_value, null, 'a one-character flag is not a taxable value');
+  assert.equal(map.land_sqft, null, 'garage square footage is not lot size');
+  assert.notEqual(map.situs_address, 'DEED_HOLDER_ADDRESS_1');
+  assert.equal(map.use_code, null);
+  assert.equal(how.use_code, 'disabled');
+});
+
 test('native-unit area fields are never used as square feet', () => {
   const info = mk([{ name: 'OBJECTID', type: 'esriFieldTypeOID' }, 'PID_NUM', { name: 'Shape_Area', type: 'esriFieldTypeDouble' }, { name: 'GIS_AREA', type: 'esriFieldTypeDouble' }, 'KCTP_CITY']);
   const { map } = resolveFieldMap(info);

@@ -57,9 +57,34 @@ async function nominatim(q, opts) {
   }));
 }
 
+/** Loads a JSONP endpoint (for services without CORS headers). */
+function jsonp(url, { timeoutMs = 15000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const cb = `__geocb_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const script = document.createElement('script');
+    const done = (fn) => (v) => {
+      clearTimeout(timer);
+      delete window[cb];
+      script.remove();
+      fn(v);
+    };
+    const timer = setTimeout(done(() => reject(new Error('JSONP timeout'))), timeoutMs);
+    window[cb] = done(resolve);
+    script.onerror = done(() => reject(new Error('JSONP load error')));
+    script.src = `${url}&callback=${cb}`;
+    document.head.appendChild(script);
+  });
+}
+
 async function census(q, opts) {
-  const params = new URLSearchParams({ address: q, benchmark: 'Public_AR_Current', format: 'json' });
-  const data = await getJson(`${CENSUS}?${params}`, opts);
+  const params = new URLSearchParams({ address: q, benchmark: 'Public_AR_Current', format: 'jsonp' });
+  const url = `${CENSUS}?${params}`;
+  let data;
+  try {
+    data = await getJson(url.replace('format=jsonp', 'format=json'), opts);
+  } catch {
+    data = await jsonp(url);
+  }
   return (data?.result?.addressMatches || []).map((m) => ({
     lat: Number(m.coordinates.y),
     lon: Number(m.coordinates.x),
@@ -90,7 +115,9 @@ export async function geocode(text, { signal } = {}) {
   if (ll) return [{ ...ll, label: `${ll.lat.toFixed(6)}, ${ll.lon.toFixed(6)}`, source: 'coordinates', type: 'point' }];
 
   const errors = [];
-  for (const svc of [nominatim, census, photon]) {
+  // Photon and Nominatim send CORS headers; Nominatim refuses requests without a referer,
+  // which a browser supplies. The Census geocoder is the last resort via JSONP.
+  for (const svc of [photon, nominatim, census]) {
     try {
       const rows = (await svc(q, { signal })).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon));
       if (rows.length) {

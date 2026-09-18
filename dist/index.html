@@ -1780,7 +1780,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     owner: {
       include: /(taxpayer|owner|ownr|deed_?holder|tax_?payer)/i,
-      exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|_id$|\bid$|date|dt$|url|link)/i,
+      exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of)/i,
       prefer: /name/i,
       deprioritize: /[2-9]$/
     },
@@ -1789,8 +1789,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       exclude: /(city|state|zip)/i
     },
     situs_address: {
-      include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr)/i,
-      exclude: /(owner|taxpayer|mail|city|state|zip|_no$|number|num$|dir|suffix|prefix|unit|type|link|url)/i,
+      include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr|physical_?addr)/i,
+      exclude: /(owner|taxpayer|mail|deed|holder|purchaser|kctp|city|state|zip|_no$|number|num$|dir|suffix|prefix|unit|type|link|url|_st$|_sub$|hs_?num|bldg)/i,
       prefer: /(situs_?addr(ess)?$|full|site_?addr(ess)?$|addr_?full)/i
     },
     situs_city: {
@@ -1799,7 +1799,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     taxable_value: {
       include: /(taxable|tax_?val|taxval|tax_?value|tx_?val)/i,
-      exclude: /(land|impr|improv|bldg|building|prev|prior|year|yr|desc|code|status|flag|pct|rate|_dt|date)/i,
+      exclude: /(land|impr|improv|bldg|building|prev|prior|year|yr|desc|code|status|stat$|flag|pct|rate|_dt|date|rsn|reason|ind$|exempt|adj)/i,
       prefer: /(total|ttl|tot|taxable_?value|taxable_?val)/i
     },
     land_value: {
@@ -1827,7 +1827,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       // GIS_AREA, LAND_AREA) are in the layer's native units and are deliberately excluded;
       // acreage is computed from the geometry instead.
       include: /(sq_?ft|sqft|square_?f|lot_?size|lotsz|land_?sf|area_?sf|lot_?sq)/i,
-      exclude: /(bldg|building|impr|improv|living|gross_?bldg|floor|footprint|nra|gla|desc|code)/i,
+      exclude: /(bldg|building|impr|improv|living|gross_?bldg|floor|footprint|nra|gla|desc|code|garage|basement|attic|porch|deck|finished|unfinished|carport|shop|barn|res_?sq|house)/i,
       prefer: /(lot|land|parcel|legal|deeded)/i
     },
     use_code: {
@@ -1876,6 +1876,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     for (const attr of ATTRS) {
       let chosen = null;
       let method = null;
+      if (candidates[attr] === false) {
+        map[attr] = null;
+        how[attr] = "disabled";
+        continue;
+      }
       for (const cand of candidates[attr] || []) {
         const f = byLower.get(String(cand).toLowerCase()) || byAliasLower.get(String(cand).toLowerCase());
         if (f && !used.has(f.name)) {
@@ -1892,7 +1897,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           let s = score(f, HEURISTICS[attr]);
           if (s && VALUE_ATTRS.has(attr)) {
             if (NUMERIC_TYPES.has(f.type)) s += 10;
-            else if (f.type === "esriFieldTypeString") s -= 5;
+            else if (f.type === "esriFieldTypeString") {
+              if (f.length && f.length <= 5) continue;
+              s -= 5;
+            }
           }
           if (s > bestScore) {
             bestScore = s;
@@ -1956,20 +1964,6 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     computed: STATEWIDE_COMPUTED,
     notes: "Supplies market values, DOR land use and the assessor link where the county layer lacks them."
   };
-  function wisaardOwnerEnrich(layerId, county, fields) {
-    return {
-      id: `wisaard-${layerId}-owner`,
-      geometry: false,
-      enrich: true,
-      confidence: "confirmed",
-      name: `${county} County parcels, 2021 compilation (DAHP WISAARD), owner join`,
-      publisher: "Washington State Department of Archaeology and Historic Preservation",
-      url: `https://wisaard.dahp.wa.gov/server/rest/services/County_Parcels/FeatureServer/${layerId}`,
-      fields,
-      ownerNote: "Owner from the 2021 statewide compilation; may be out of date",
-      notes: "Dated (2021) compilation joined by parcel number to supply owner names."
-    };
-  }
   var STATEWIDE = {
     key: "wa",
     name: "Washington State Current Parcels",
@@ -1987,7 +1981,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         fields: STATEWIDE_FIELDS,
         computed: STATEWIDE_COMPUTED,
         lookup: STATEWIDE_USE_LOOKUP,
-        notes: "Normalized DOR schema for all 39 counties, updated April 2026. Owner/taxpayer names are generally not published on this layer (candidates are probed anyway); values are market (not taxable). DATA_LINK opens the county assessor record."
+        notes: "Normalized DOR schema for all 39 counties, updated April 2026; CORS enabled. Owner names are not published; values are market (not taxable). DATA_LINK opens the county assessor record."
       },
       {
         id: "wa-ecology-mirror",
@@ -2006,8 +2000,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           assessor_link: ["DATA_LINK"],
           county: ["COUNTY_NM"]
         },
-        computed: { total_value: { sum: ["VALUE_LAND", "VALUE_BLDG"], label: "Market land + building value" } },
-        notes: "Same schema as the State layer; vintage may lag. Used only if the State layer is unreachable."
+        computed: STATEWIDE_COMPUTED,
+        notes: "Same schema as the State layer (values were not populated when probed); used only if the State layer is unreachable."
       }
     ]
   };
@@ -2024,12 +2018,27 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     use_code: ["Use_Code"],
     use_description: ["Landuse_Description"]
   };
+  var PIERCE_COUNTY_COMPUTED = { total_value: { sum: ["Land_Value", "Improvement_Value"], label: "Land + improvement value" } };
+  var TACOMA_FIELDS = {
+    parcel_id: ["TaxParcelNumber"],
+    owner: ["TAXPAYERNAME", "TaxpayerName", "Taxpayer_Name"],
+    situs_address: ["SiteAddress", "Site_Address"],
+    taxable_value: ["TaxableValueCurrentYear", "TaxableValue", "Taxable_Value", "TaxableValuePriorYear"],
+    land_value: ["LandValueCurrentYear", "LandValue", "Land_Value", "LandValuePriorYear"],
+    improvement_value: ["ImprovementValueCurrentYear", "ImprovementValue", "Improvement_Value", "ImprovementValuePriorYear"],
+    total_value: ["TotalMarketValueCurrentYear", "TotalMarketValue", "TotalMarketValuePriorYear"],
+    land_acres: ["LandGrossAcres", "Land_Acres"],
+    use_code: ["Use_Code", "CurrentUseCodeCurrentYear"],
+    use_description: ["Landuse_Description", "UseDescription"]
+  };
   var KING_FIELDS = {
     parcel_id: ["PIN"],
     owner: ["KCTP_NAME"],
     owner_address: ["KCTP_ADDR"],
     situs_address: ["ADDR_FULL"],
     situs_city: ["CTYNAME", "POSTALCTYNAME"],
+    taxable_value: false,
+    // TAX_LNDVAL + TAX_IMPR (computed); TAXVAL_RSN is a reason code
     land_value: ["APPRLNDVAL"],
     improvement_value: ["APPR_IMPR"],
     land_acres: ["KCA_ACRES"],
@@ -2044,9 +2053,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   var SNOHOMISH_FIELDS = {
     parcel_id: ["PARCEL_ID"],
     owner: ["TAXPRNAME", "OWNERNAME"],
-    owner_address: ["OWNERLINE1"],
+    owner_address: ["TAXPRLINE1", "OWNERLINE1"],
     situs_address: ["SITUSLINE1"],
     situs_city: ["SITUSCITY"],
+    taxable_value: false,
+    // not published; MKTTL (total market) is shown and flagged
     land_value: ["MKLND"],
     improvement_value: ["MKIMP"],
     total_value: ["MKTTL"],
@@ -2061,20 +2072,96 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     owner_address: ["MAILING_AD"],
     situs_address: ["SITUS_ADDR"],
     situs_city: ["SITUS_CITY"],
+    taxable_value: false,
     land_value: ["MKT_LAND"],
     improvement_value: ["MKT_IMPVT"],
     land_acres: ["ACRES", "SIZE"],
-    use_code: ["USE_CODE"]
+    land_sqft: false,
+    use_code: ["USE_CODE"],
+    use_description: false
   };
+  var YAKIMA_COMPOSE = { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME", middle: "MIDDLE_NAME" };
+  var YAKIMA_COMPUTED = { total_value: { sum: ["MKT_LAND", "MKT_IMPVT"], label: "Market land + improvement value" } };
   var CLARK_FIELDS = {
     parcel_id: ["Prop_id", "prop_id", "PROP_ID"],
-    owner: ["MainOwnerI", "MainOwnerInfo", "Owner"],
-    situs_address: ["SitusAddrs", "SitusAddress"],
+    owner: false,
+    owner_address: false,
+    situs_address: ["SitusAddrsFull", "SitusAddrs"],
+    situs_city: ["SitusCity"],
     taxable_value: ["TaxTotVal"],
     land_value: ["MktLandVal"],
     improvement_value: ["MktBldgVal"],
-    land_acres: ["GISAc", "LandAcres"],
-    use_code: ["PropClass", "PropertyClass", "LandUse"]
+    total_value: ["MktTotVal"],
+    land_acres: ["AssrAc", "GISAc"],
+    land_sqft: ["AssrSqFt", "GISSqft"],
+    use_code: ["PropertyUseClass", "Pt1"],
+    use_description: ["Pt1Desc"]
+  };
+  var THURSTON_FIELDS = {
+    parcel_id: ["PARCEL_NO", "ParcelNumber"],
+    owner: ["OWNER_NAME", "OWNER"],
+    owner_address: ["ADDRESS1"],
+    situs_address: ["SITUS_STRE"],
+    situs_city: ["SITUS_CITY"],
+    taxable_value: false,
+    land_value: ["LAND_VALUE"],
+    improvement_value: ["BLDG_VALUE"],
+    total_value: ["TOTAL_VALUE", "TOTAL_VALU"],
+    land_acres: ["TOTAL_ACRES", "TOTAL_ACRE"],
+    use_code: false,
+    // county codes are cryptic; the DOR code from the State join is used
+    use_description: false
+  };
+  var SKAGIT_FIELDS = {
+    parcel_id: ["PARCELID"],
+    owner: ["OwnerName"],
+    owner_address: ["OwnerAdd1"],
+    situs_address: false,
+    // composed from SitusStNo + SitusStName
+    situs_city: ["SitusCSZ"],
+    taxable_value: ["TaxableValue"],
+    land_value: false,
+    // sum of ImprLandValue + UnimprLandValue + TimberLandValue
+    improvement_value: ["BuildingValue"],
+    total_value: ["TotalMktValue", "AssessedValue"],
+    land_acres: ["Acres"],
+    land_sqft: false,
+    use_code: ["LandUse"],
+    use_description: false
+  };
+  var SKAGIT_COMPUTED = { land_value: { sum: ["ImprLandValue", "UnimprLandValue", "TimberLandValue"], label: "Improved + unimproved + timber land value" } };
+  var SKAGIT_SITUS = ["SitusStNo", "SitusStName"];
+  var COWLITZ_FIELDS = {
+    parcel_id: ["PARCNO", "ACCOUNTNO"],
+    owner: ["DEED_HOLDER_NAME"],
+    owner_address: ["DEED_HOLDER_ADDRESS_1", "DEED_HOLDER_ADDRESS"],
+    situs_address: false,
+    // composed from situs parts
+    situs_city: ["SITUS_CITY"],
+    taxable_value: ["TAXABLE_VALUE"],
+    land_value: ["LAND_ASSESSED_VALUE"],
+    improvement_value: ["IMPR_ASSESSED_VALUE"],
+    total_value: ["TOTAL_ASSESSED_VALUE"],
+    land_acres: ["ACRES_TOTAL"],
+    use_code: ["USE_CODE"],
+    use_description: ["USE_CODE_DESCRIPTION"]
+  };
+  var COWLITZ_COMPUTED = { total_value: { sum: ["LAND_ASSESSED_VALUE", "IMPR_ASSESSED_VALUE"], label: "Assessed land + improvement value" } };
+  var COWLITZ_SITUS = ["SITUS_STREET_NUMBER", "SITUS_STREET_DIRECTION", "SITUS_STREET_NAME", "SITUS_STREET_SUFFIX", "SITUS_STREET_UNIT"];
+  var CHELAN_FIELDS = {
+    parcel_id: ["sde_CHELAN_PACS_TABLE_PID", "sde_CHELAN_Property_Polygons_pr", "sde_CHELAN_PACS_TABLE_Geo_ID"],
+    owner: ["sde_CHELAN_PACS_TABLE_Owner_Nam"],
+    owner_address: ["sde_CHELAN_PACS_TABLE_Address_1"],
+    situs_address: ["sde_CHELAN_PACS_TABLE_Site_Addr"],
+    situs_city: ["sde_CHELAN_PACS_TABLE_Situs_Cit"],
+    land_acres: ["sde_CHELAN_PACS_TABLE_Acres"],
+    assessor_link: ["ASSESSORLINK"],
+    taxable_value: false,
+    land_value: false,
+    improvement_value: false,
+    total_value: false,
+    use_code: false,
+    use_description: false
   };
   var PROVIDERS = [
     {
@@ -2088,44 +2175,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           id: "tacoma-ats-parcels",
           geometry: true,
           enrich: true,
-          confidence: "confirmed",
+          confidence: "likely",
           name: "Pierce County Tax Parcels with Assessor-Treasurer info (City of Tacoma GIS)",
           publisher: "City of Tacoma ITD / Pierce County Assessor-Treasurer",
           url: "https://esgis.tacoma.gov/arcgis/rest/services/Ref/ITD_Basemap/MapServer/2",
-          fields: {
-            parcel_id: ["TaxParcelNumber"],
-            owner: ["TAXPAYERNAME", "TaxpayerName", "Taxpayer_Name"],
-            situs_address: ["SiteAddress", "Site_Address"],
-            taxable_value: ["TaxableValueCurrentYear", "TaxableValue", "Taxable_Value", "TaxableValuePriorYear"],
-            land_value: ["LandValueCurrentYear", "LandValue", "Land_Value", "LandValuePriorYear"],
-            improvement_value: ["ImprovementValueCurrentYear", "ImprovementValue", "Improvement_Value", "ImprovementValuePriorYear"],
-            total_value: ["TotalMarketValueCurrentYear", "TotalMarketValue", "TotalMarketValuePriorYear"],
-            land_acres: ["LandGrossAcres", "Land_Acres"],
-            use_code: ["Use_Code", "CurrentUseCodeCurrentYear"],
-            use_description: ["Landuse_Description", "UseDescription"]
-          },
-          notes: "County-wide parcel polygons joined to Assessor-Treasurer data including taxpayer name and taxable value."
-        },
-        {
-          id: "tacoma-ats-parcels-alt-host",
-          geometry: true,
-          enrich: false,
-          confidence: "guess",
-          name: "Pierce County Tax Parcels with Assessor-Treasurer info (City of Tacoma GIS, alternate host)",
-          publisher: "City of Tacoma ITD / Pierce County Assessor-Treasurer",
-          url: "https://gis.tacoma.gov/arcgis/rest/services/Ref/ITD_Basemap/MapServer/2",
-          fields: {
-            parcel_id: ["TaxParcelNumber"],
-            owner: ["TAXPAYERNAME", "TaxpayerName", "Taxpayer_Name"],
-            situs_address: ["SiteAddress", "Site_Address"],
-            taxable_value: ["TaxableValueCurrentYear", "TaxableValue", "Taxable_Value", "TaxableValuePriorYear"],
-            land_value: ["LandValueCurrentYear", "LandValue", "Land_Value", "LandValuePriorYear"],
-            improvement_value: ["ImprovementValueCurrentYear", "ImprovementValue", "Improvement_Value", "ImprovementValuePriorYear"],
-            total_value: ["TotalMarketValueCurrentYear", "TotalMarketValue", "TotalMarketValuePriorYear"],
-            land_acres: ["LandGrossAcres", "Land_Acres"],
-            use_code: ["Use_Code", "CurrentUseCodeCurrentYear"]
-          },
-          notes: "Same service path on the city\u2019s other ArcGIS Server host; tried only if the primary host is unreachable."
+          fields: TACOMA_FIELDS,
+          notes: "County-wide parcel polygons joined to Assessor-Treasurer data including taxpayer name and taxable value (documented in the indexed REST directory; the host did not answer GitHub\u2019s runners, so it may be reachable only from some networks)."
         },
         {
           id: "pierce-tax-parcels",
@@ -2136,9 +2191,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           publisher: "Pierce County Planning & Public Works GIS / Assessor-Treasurer",
           url: "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Tax_Parcels/FeatureServer/0",
           fields: PIERCE_COUNTY_FIELDS,
+          computed: PIERCE_COUNTY_COMPUTED,
           ownerNote: "Business_Name lists the taxpayer name for business-owned parcels only",
           ownerNoteField: "business",
-          notes: "Authoritative county layer with taxable value, land acres, use code and land-use description; individual taxpayer names are not published here."
+          notes: "Authoritative county layer (CORS enabled) with taxable value, land acres, use code and land-use description; individual taxpayer names are not published here."
         },
         {
           id: "soundtransit-pierce-parcels",
@@ -2148,9 +2204,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           publisher: "Sound Transit (mirror of Pierce County data)",
           url: "https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/1",
           fields: PIERCE_COUNTY_FIELDS,
+          computed: PIERCE_COUNTY_COMPUTED,
           ownerNote: "Business_Name lists the taxpayer name for business-owned parcels only",
           ownerNoteField: "business",
-          notes: "Regional mirror of the county layer; refresh cadence may lag."
+          notes: "Regional mirror of the county layer; values may lag the county."
         }
       ]
     },
@@ -2162,48 +2219,38 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       assessorLink: "https://blue.kingcounty.com/Assessor/eRealProperty/Dashboard.aspx?ParcelNbr={parcel}",
       sources: [
         {
-          id: "king-parcel-address-pub-area",
-          geometry: true,
-          confidence: "confirmed",
-          name: "Parcels with address and property information (King County ArcGIS Online, PARCEL_ADDRESS_PUB_AREA)",
-          publisher: "King County GIS Center / King County Assessor",
-          url: "https://services.arcgis.com/Ej0PsM5Aw677QF1W/arcgis/rest/services/PARCEL_ADDRESS_PUB_AREA_3069/FeatureServer/0",
-          fields: { ...KING_FIELDS, owner: ["KCTP_NAME"] },
-          computed: KING_COMPUTED,
-          notes: "Hosted county layer with taxpayer name (KCTP_NAME), taxable and appraised land/improvement values, acres and present-use description."
-        },
-        {
           id: "king-parcel-address-area",
           geometry: true,
-          confidence: "likely",
+          confidence: "confirmed",
           name: "parcel_address_area (King County GIS, Districts/DistrictsReport)",
           publisher: "King County GIS Center / King County Assessor",
           url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Districts/DistrictsReport/MapServer/1",
           fields: KING_FIELDS,
           computed: KING_COMPUTED,
-          notes: "Parcels with taxpayer name, appraised and taxable land/improvement values, lot size and present-use description."
+          notes: "County layer with taxpayer name (KCTP_NAME), appraised and taxable land/improvement values, acres and present-use description."
+        },
+        {
+          id: "king-parcel-address-pub-area",
+          geometry: true,
+          enrich: true,
+          confidence: "confirmed",
+          name: "Parcels with address and property information (King County ArcGIS Online)",
+          publisher: "King County GIS Center / King County Assessor",
+          url: "https://services.arcgis.com/Ej0PsM5Aw677QF1W/arcgis/rest/services/PARCEL_ADDRESS_PUB_AREA_3069/FeatureServer/0",
+          fields: { ...KING_FIELDS, owner: false },
+          computed: KING_COMPUTED,
+          notes: "Hosted county layer (CORS enabled) with the same values, acres and present use, but without taxpayer names."
         },
         {
           id: "king-propertyinfo-parcels",
           geometry: true,
-          confidence: "likely",
+          confidence: "confirmed",
           name: "Parcels (King County Property/KingCo_PropertyInfo)",
           publisher: "King County GIS Center",
           url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Property/KingCo_PropertyInfo/MapServer/2",
-          fields: { ...KING_FIELDS, owner: ["KCTP_NAME"] },
-          computed: KING_COMPUTED,
-          notes: "Fallback property-themed parcel layer used by King County Parcel Viewer; its display field FULLNAME is a street name, not an owner, so owner may be absent here."
-        },
-        {
-          id: "king-opendata-legacy",
-          geometry: true,
-          confidence: "confirmed",
-          name: "parcel_address_area (King County Open Data legacy server)",
-          publisher: "King County GIS Center",
-          url: "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/property__parcel_address_area/MapServer/1722",
-          fields: KING_FIELDS,
-          computed: KING_COMPUTED,
-          notes: "Legacy mirror with the same schema."
+          fields: { ...KING_FIELDS, owner: false, owner_address: false },
+          computed: { total_value: KING_COMPUTED.total_value },
+          notes: "Fallback property-themed parcel layer: appraised values, acres and present use; no taxable values or owner."
         }
       ]
     },
@@ -2222,7 +2269,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           publisher: "Snohomish County GIS / Assessor",
           url: "https://services6.arcgis.com/z6WYi9VRHfgwgtyW/ArcGIS/rest/services/Parcels/FeatureServer/0",
           fields: SNOHOMISH_FIELDS,
-          notes: "Taxpayer of record and owner names, market land/improvement/total values (no taxable value field), tabulated and GIS acres, use code and exemption description."
+          notes: "Taxpayer of record and owner names, market land/improvement/total values (no taxable value field), acres, lot square feet and use code; CORS enabled."
         },
         {
           id: "snoco-tax-parcels",
@@ -2237,12 +2284,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         {
           id: "soundtransit-snohomish-parcels",
           geometry: true,
-          confidence: "likely",
+          confidence: "confirmed",
           name: "Tax Parcels, Snohomish County (Sound Transit STARS mirror)",
           publisher: "Sound Transit (mirror of Snohomish County data)",
           url: "https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/2",
-          fields: { parcel_id: ["PARCEL_ID"] },
-          notes: "Regional mirror; may carry parcel numbers and geometry only."
+          fields: SNOHOMISH_FIELDS,
+          notes: "Regional mirror with the same schema; values may lag the county."
         }
       ]
     },
@@ -2262,6 +2309,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           url: "https://services1.arcgis.com/ozNll27nt9ZtPWOn/arcgis/rest/services/Parcels/FeatureServer/0",
           fields: {
             parcel_id: ["PID_NUM", "parcel"],
+            owner: false,
             situs_address: ["site_address"],
             situs_city: ["site_city"],
             taxable_value: ["taxable_amt"],
@@ -2272,7 +2320,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
             use_description: ["prop_use_desc"]
           },
           computed: { improvement_value: { diff: ["assessed_amt", "land_value"], label: "Assessed total minus land value" } },
-          notes: "County parcels with taxable and assessed values, acreage, and property-use code and description. Owner names come from the SCOUT lookup join."
+          notes: "County parcels (CORS enabled) with taxable and assessed values, acreage, and property-use code and description. Owner names come from the SCOUT join."
         },
         {
           id: "spokane-scout-property-lookup",
@@ -2282,7 +2330,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "SCOUT Property Lookup (Spokane County), owner join",
           publisher: "Spokane County GIS (SCOUT)",
           url: "https://gismo.spokanecounty.org/arcgis/rest/services/SCOUT/PropertyLookup/MapServer/0",
-          fields: { parcel_id: ["PID_NUM"], owner: ["owner_name"], situs_address: ["site_address"], land_acres: ["acreage"], use_description: ["prop_use_desc"] },
+          fields: { parcel_id: ["PID_NUM"], owner: ["owner_name"], situs_address: ["site_address"], situs_city: ["site_city"], land_acres: ["acreage"], use_description: ["prop_use_desc"] },
           notes: "Owner name, use description and acreage keyed by parcel number."
         },
         {
@@ -2299,12 +2347,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         {
           id: "spokane-assessor-parcels",
           geometry: true,
-          confidence: "likely",
+          confidence: "confirmed",
           name: "Parcels (Spokane County Assessor, Parcels_GISCORE)",
           publisher: "Spokane County Assessor / Spokane County GIS",
           url: "https://gismo.spokanecounty.org/arcgis/rest/services/Assessor/Parcels/MapServer/0",
-          fields: { parcel_id: ["PID_NUM", "PID"], owner: ["owner_name"], situs_address: ["site_address"], taxable_value: ["taxable_amt"], land_value: ["land_value"], total_value: ["assessed_amt"], land_acres: ["acreage"], use_code: ["prop_use_code"], use_description: ["prop_use_desc"] },
-          notes: "County-hosted assessor parcel layer; attribute names resolved from the live schema."
+          fields: { parcel_id: ["PID_NUM", "PID"], owner: false, situs_address: ["site_address"], situs_city: ["site_city"], land_acres: ["acreage"] },
+          notes: "County-hosted assessor parcel geometry with situs and acreage; values come from the hosted layer."
         }
       ]
     },
@@ -2312,9 +2360,19 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       key: "thurston",
       name: "Thurston County",
       counties: ["Thurston"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: "https://tcproperty.co.thurston.wa.us/propsql/basic.asp?fe=PR&pn={parcel}",
       sources: [
+        {
+          id: "thurston-enterprise-parcels",
+          geometry: true,
+          confidence: "confirmed",
+          name: "Parcel Boundaries (Thurston County Enterprise, Common_Layers)",
+          publisher: "Thurston County / Assessor",
+          url: "https://tconline.co.thurston.wa.us/server/rest/services/Common_Layers/Parcels/FeatureServer/4",
+          fields: THURSTON_FIELDS,
+          notes: "County parcels with owner name, land/building/total values and acreage; taxable value is not published (TAXABLE is a flag)."
+        },
         {
           id: "thurston-parcels",
           geometry: true,
@@ -2322,43 +2380,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Thurston Parcels (Thurston GeoData Center)",
           publisher: "Thurston County GeoData Center / Assessor",
           url: "https://map.co.thurston.wa.us/arcgis/rest/services/Thurston/Thurston_Parcels/FeatureServer/0",
-          fields: {
-            parcel_id: ["ParcelNumber", "PARCEL_NO"],
-            owner: ["OWNER", "OWNER_NAME", "TAXPAYER", "Owner"],
-            owner_address: ["ADDRESS1"],
-            situs_address: ["SITUS_STRE", "SitusAddress"],
-            situs_city: ["SITUS_CITY"],
-            taxable_value: ["TAXABLE"],
-            land_value: ["LAND_VALUE"],
-            improvement_value: ["BLDG_VALUE"],
-            total_value: ["TOTAL_VALU", "TOTAL_VALUE"],
-            land_acres: ["TOTAL_ACRE", "TOTAL_ACRES"],
-            use_code: ["CURR_USE", "PROP_TYPE"],
-            use_description: ["PROP_SUBTY", "PROP_TYPE_DESC"]
-          },
-          notes: "County parcel layer with taxable value, land/building values and acreage; owner names may not be published."
+          fields: { ...THURSTON_FIELDS, owner: false },
+          notes: "Older county layer with the same extract but without owner names."
         },
-        {
-          id: "thurston-enterprise-parcels",
-          geometry: true,
-          confidence: "confirmed",
-          name: "Parcels (Thurston County Enterprise, Common_Layers)",
-          publisher: "Thurston County",
-          url: "https://tconline.co.thurston.wa.us/server/rest/services/Common_Layers/Parcels/FeatureServer/4",
-          fields: {
-            parcel_id: ["ParcelNumber", "PARCEL_NO"],
-            owner: ["OWNER", "OWNER_NAME", "TAXPAYER"],
-            situs_address: ["SITUS_STRE"],
-            situs_city: ["SITUS_CITY"],
-            taxable_value: ["TAXABLE"],
-            land_value: ["LAND_VALUE"],
-            improvement_value: ["BLDG_VALUE"],
-            total_value: ["TOTAL_VALU"],
-            land_acres: ["TOTAL_ACRE"],
-            use_code: ["CURR_USE", "PROP_TYPE"]
-          },
-          notes: "Newer county host with the same assessor extract."
-        }
+        STATEWIDE_ENRICH
       ]
     },
     {
@@ -2376,47 +2401,20 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           publisher: "Yakima County GIS / Assessor",
           url: "https://maps.yakimacounty.us/server/rest/services/Assessor/Taxlots/FeatureServer/2",
           fields: YAKIMA_FIELDS,
-          ownerCompose: { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME", middle: "MIDDLE_NAME" },
-          computed: { total_value: { sum: ["MKT_LAND", "MKT_IMPVT"], label: "Market land + improvement value" } },
+          ownerCompose: YAKIMA_COMPOSE,
+          computed: YAKIMA_COMPUTED,
           notes: "Current tax-roll taxlots with organisation or individual owner names, market values, acres, and DOR use code with description."
         },
-        {
-          id: "yakima-agol-parcels",
-          geometry: true,
-          confidence: "likely",
-          name: "Parcels (Yakima County ArcGIS Online)",
-          publisher: "Yakima County GIS",
-          url: "https://services3.arcgis.com/9Qz94N8Zml9hnG84/arcgis/rest/services/Parcels/FeatureServer/0",
-          fields: YAKIMA_FIELDS,
-          ownerCompose: { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME", middle: "MIDDLE_NAME" },
-          computed: { total_value: { sum: ["MKT_LAND", "MKT_IMPVT"], label: "Market land + improvement value" } },
-          notes: "Hosted copy; attribute coverage confirmed at runtime."
-        }
+        STATEWIDE_ENRICH
       ]
     },
     {
       key: "kitsap",
       name: "Kitsap County",
       counties: ["Kitsap"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: "https://psearch.kitsap.gov/pdetails/Details?parcel={parcel}&page=general",
       sources: [
-        {
-          id: "kitsap-agol-parcels",
-          geometry: true,
-          confidence: "guess",
-          name: "Parcels (Kitsap County ArcGIS Online)",
-          publisher: "Kitsap County GIS",
-          url: "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/Parcels/FeatureServer/0",
-          fields: {
-            parcel_id: ["RP_ACCT_ID", "APN", "ACCT_NO"],
-            owner: ["CONTACT_NAME", "OWNER", "TAXPAYER"],
-            situs_address: ["SITE_ADDR"],
-            land_acres: ["POLY_ACRES", "ACRES"],
-            use_code: ["PROP_CLASS", "PROPERTY_CLASS"]
-          },
-          notes: "County hosted parcel layer; attributes resolved from the live schema."
-        },
         {
           id: "kitsap-health-parcels",
           geometry: true,
@@ -2424,9 +2422,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Kitsap Parcels (Kitsap Public Health District GIS)",
           publisher: "Kitsap Public Health District (county parcel data)",
           url: "https://secure.kitsappublichealth.org/agsserver/rest/services/KPHDGISPUB/KitsapParcelsPub/MapServer/0",
-          fields: { parcel_id: ["ACCT_NO", "TaxID", "RP_ACCT_ID"], owner: ["OWNER", "TAXPAYER", "CONTACT_NAME"] },
-          notes: "Parcel boundaries keyed by account number; other attributes resolved at runtime."
-        }
+          fields: { parcel_id: ["ACCT_NO", "RP_ACCT_ID", "TaxID"], owner: ["OWNER"], situs_address: ["Address"], assessor_link: false, taxable_value: false, land_value: false, improvement_value: false, total_value: false, land_acres: false, use_code: false, use_description: false },
+          notes: "Parcel boundaries with owner name and address; values and land use come from the State join."
+        },
+        STATEWIDE_ENRICH
       ]
     },
     {
@@ -2444,35 +2443,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           publisher: "Clark County GIS / Assessor",
           url: "https://services2.arcgis.com/ylxwjFBdCPBzP16d/arcgis/rest/services/TaxlotsforPublicUse/FeatureServer/0",
           fields: CLARK_FIELDS,
-          computed: { total_value: { sum: ["MktLandVal", "MktBldgVal"], label: "Market land + building value" } },
-          notes: "County taxlots with owner, taxable total value, market land/building values and GIS acres."
-        },
-        {
-          id: "clark-taxlots-public-legacy",
-          geometry: true,
-          confidence: "likely",
-          name: "Taxlots Public (Clark County GIS, earlier service)",
-          publisher: "Clark County GIS",
-          url: "https://services2.arcgis.com/ylxwjFBdCPBzP16d/arcgis/rest/services/TaxlotsPublic/FeatureServer/0",
-          fields: CLARK_FIELDS,
-          computed: { total_value: { sum: ["MktLandVal", "MktBldgVal"], label: "Market land + building value" } },
-          notes: "Earlier service name; fallback only."
-        },
-        {
-          id: "clark-enterprise-taxlots",
-          geometry: true,
-          confidence: "likely",
-          name: "TaxlotsPublic_Singlepart (Clark County Enterprise)",
-          publisher: "Clark County GIS",
-          url: "https://gis.clark.wa.gov/arcgisfed/rest/services/Hosted/TaxlotsPublic_Singlepart/FeatureServer/0",
-          fields: CLARK_FIELDS,
-          computed: { total_value: { sum: ["MktLandVal", "MktBldgVal"], label: "Market land + building value" } },
-          notes: "County-hosted copy; fallback only."
+          notes: "County taxlots (CORS enabled) with taxable and market values, assessor acres and property use; owner names are not published on this layer."
         }
       ]
-    }
-  ];
-  PROVIDERS.push(
+    },
     {
       key: "whatcom",
       name: "Whatcom County",
@@ -2483,7 +2457,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         {
           id: "whatcom-property-parcels",
           geometry: true,
-          confidence: "confirmed",
+          confidence: "likely",
           name: "Public Tax Parcels (Whatcom County Property service)",
           publisher: "Whatcom County GIS / Assessor",
           url: "https://gis.whatcomcounty.us/arcgis/rest/services/EnterprisePublishing/WhatcomCo_Property/MapServer/1",
@@ -2502,7 +2476,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           },
           situsCompose: ["situs_num", "situs_street_prefix", "situs_street", "situs_unit"],
           linkIdField: "prop_id",
-          notes: "County parcels joined to PACS assessor data: taxpayer name, taxable and market values, legal acreage, property use."
+          notes: "Documented PACS-joined layer (taxpayer name, taxable and market values, legal acreage, property use). The service was stopped when probed; the State layer covers Whatcom until it returns."
         }
       ]
     },
@@ -2520,20 +2494,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Tax Parcels (Skagit County GIS portal)",
           publisher: "Skagit County GIS / Assessor",
           url: "https://geo.skagitcountywa.gov/server/rest/services/PortalServiceLayers/Tax_Parcels/MapServer/0",
-          fields: {
-            parcel_id: ["PARCELID"],
-            owner: ["OwnerName"],
-            owner_address: ["OwnerAdd1"],
-            situs_city: ["SitusCSZ"],
-            taxable_value: ["TaxableValue"],
-            improvement_value: ["BuildingValue"],
-            total_value: ["TotalMktValue", "AssessedValue"],
-            land_acres: ["Acres"],
-            use_code: ["LandUse"]
-          },
-          situsCompose: ["SitusStNo", "SitusStName"],
-          computed: { land_value: { sum: ["ImprLandValue", "UnimprLandValue", "TimberLandValue"], label: "Improved + unimproved + timber land value" } },
-          notes: "County parcels with owner, taxable value, building and land values, acres and land-use code."
+          fields: SKAGIT_FIELDS,
+          situsCompose: SKAGIT_SITUS,
+          computed: SKAGIT_COMPUTED,
+          notes: "County parcels with owner, taxable value, building and land values, acres and land use (code with description)."
         },
         {
           id: "skagit-assessor-open-data",
@@ -2542,18 +2506,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Assessor Data Parcels (Skagit County Open Data)",
           publisher: "Skagit County GIS",
           url: "https://gis.skagitcountywa.gov/arcgis/rest/services/OpenData/AssessorDataParcels/FeatureServer/0",
-          fields: {
-            parcel_id: ["PARCELID"],
-            owner: ["OwnerName"],
-            situs_city: ["SitusCSZ"],
-            taxable_value: ["TaxableValue"],
-            improvement_value: ["BuildingValue"],
-            total_value: ["TotalMktValue", "AssessedValue"],
-            land_acres: ["Acres"],
-            use_code: ["LandUse"]
-          },
-          situsCompose: ["SitusStNo", "SitusStName"],
-          computed: { land_value: { sum: ["ImprLandValue", "UnimprLandValue", "TimberLandValue"], label: "Improved + unimproved + timber land value" } },
+          fields: SKAGIT_FIELDS,
+          situsCompose: SKAGIT_SITUS,
+          computed: SKAGIT_COMPUTED,
           notes: "Same schema on the county open-data server."
         }
       ]
@@ -2566,49 +2521,28 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       assessorLink: "https://cowlitzinfo.net/CowlitzPropertyApp/CowlitzPropertyApp/Zoner/property_detail?prop_id={parcel}",
       sources: [
         {
-          id: "cowlitz-cadastral-parcels",
+          id: "cowlitz-assessor-parcels",
           geometry: true,
           confidence: "confirmed",
+          name: "Parcels (Cowlitz County Assessor service)",
+          publisher: "Cowlitz County GIS / Assessor",
+          url: "https://gis.cowlitzwa.gov/ccserver/rest/services/Assessor/Parcels/MapServer/0",
+          fields: { ...COWLITZ_FIELDS, taxable_value: false, total_value: false },
+          situsCompose: COWLITZ_SITUS,
+          computed: COWLITZ_COMPUTED,
+          notes: "Assessor-maintained parcels with deed holder, assessed land and improvement values, total acres and use code with description."
+        },
+        {
+          id: "cowlitz-cadastral-parcels",
+          geometry: true,
+          confidence: "likely",
           name: "Parcels (Cowlitz County Cadastral)",
           publisher: "Cowlitz County GIS / Assessor",
           url: "https://cowlitzgis.net/ccserver/rest/services/Cadastral/Parcels/MapServer/0",
-          fields: {
-            parcel_id: ["PARCNO", "ACCOUNTNO"],
-            owner: ["DEED_HOLDER_NAME"],
-            owner_address: ["DEED_HOLDER_ADDRESS"],
-            situs_address: ["SITUS_ADDRESS"],
-            situs_city: ["SITUS_CITY"],
-            taxable_value: ["TAXABLE_VALUE"],
-            land_value: ["LAND_ASSESSED_VALUE"],
-            improvement_value: ["IMPR_ASSESSED_VALUE"],
-            total_value: ["TOTAL_ASSESSED_VALUE"],
-            land_acres: ["ACRES_TOTAL"],
-            use_code: ["USE_CODE"],
-            use_description: ["USE_CODE_DESCRIPTION"]
-          },
-          situsCompose: ["SITUS_STREET_NUMBER", "SITUS_STREET_DIRECTION", "SITUS_STREET_NAME", "SITUS_STREET_SUFFIX", "SITUS_STREET_UNIT"],
-          computed: { total_value: { sum: ["LAND_ASSESSED_VALUE", "IMPR_ASSESSED_VALUE"], label: "Assessed land + improvement value" } },
-          notes: "Assessor-maintained parcels with deed holder, taxable and assessed values, total acres and use code with description."
-        },
-        {
-          id: "cowlitz-assessor-parcels",
-          geometry: true,
-          confidence: "likely",
-          name: "Parcels (Cowlitz County Assessor service)",
-          publisher: "Cowlitz County GIS",
-          url: "https://gis.cowlitzwa.gov/ccserver/rest/services/Assessor/Parcels/MapServer/0",
-          fields: {
-            parcel_id: ["PARCNO", "ACCOUNTNO"],
-            owner: ["DEED_HOLDER_NAME"],
-            situs_city: ["SITUS_CITY"],
-            land_value: ["LAND_ASSESSED_VALUE"],
-            improvement_value: ["IMPR_ASSESSED_VALUE"],
-            land_acres: ["ACRES_TOTAL"],
-            use_code: ["USE_CODE"],
-            use_description: ["USE_CODE_DESCRIPTION"]
-          },
-          situsCompose: ["SITUS_STREET_NUMBER", "SITUS_STREET_NAME", "SITUS_STREET_SUFFIX"],
-          notes: "Alternate county host with the same assessor schema."
+          fields: COWLITZ_FIELDS,
+          situsCompose: COWLITZ_SITUS,
+          computed: COWLITZ_COMPUTED,
+          notes: "Alternate county host documented with a taxable value field; did not answer when probed."
         }
       ]
     },
@@ -2616,36 +2550,19 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       key: "clallam",
       name: "Clallam County",
       counties: ["Clallam"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: null,
       sources: [
         {
           id: "clallam-parcelmap",
           geometry: true,
-          confidence: "confirmed",
+          confidence: "likely",
           name: "Parcels (Clallam County ParcelMap)",
           publisher: "Clallam County GIS / Assessor",
           url: "https://websrv19.clallam.net/arcgis/rest/services/ParcelMap/MapServer/2",
-          fields: {
-            parcel_id: ["PNUM"],
-            situs_address: ["SITUS_ADDR", "SITUS"],
-            land_acres: ["ACRES_GIS", "ACRES_SURV"],
-            land_sqft: ["AREA_SF"],
-            use_code: ["PRC_CLASS"]
-          },
+          fields: { parcel_id: ["PNUM"], situs_address: ["SITUS_ADDR", "SITUS"], land_acres: ["ACRES_GIS", "ACRES_SURV"], land_sqft: ["AREA_SF"], use_code: false, use_description: false },
           ownerCompose: { last: "OWN_LAST", first: "OWN_FIRST" },
-          notes: "County parcels with owner last/first name, situs, GIS acres and property class; values come from the State join."
-        },
-        {
-          id: "clallam-parcels-internal",
-          geometry: true,
-          confidence: "likely",
-          name: "Parcels (Clallam County, newer server)",
-          publisher: "Clallam County GIS",
-          url: "https://websrv31.clallamcountywa.gov/server/rest/services/Parcels_Internal/MapServer/0",
-          fields: { parcel_id: ["PNUM"], situs_address: ["SITUS_ADDR"], land_acres: ["ACRES_GIS"], land_sqft: ["AREA_SF"], use_code: ["PRC_CLASS"] },
-          ownerCompose: { last: "OWN_LAST", first: "OWN_FIRST" },
-          notes: "Same schema on the newer county server."
+          notes: "Documented county parcels with owner last/first name; did not answer when probed. Values and land use come from the State join."
         },
         STATEWIDE_ENRICH
       ]
@@ -2654,7 +2571,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       key: "mason",
       name: "Mason County",
       counties: ["Mason"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: "https://property.masoncountywa.gov/TaxSifter/Assessor.aspx?parcelNumber={parcel}",
       sources: [
         {
@@ -2664,9 +2581,18 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Tax parcels (Mason County SmartGov layer)",
           publisher: "Mason County GIS",
           url: "https://gis.masoncountywa.gov/arcgis/rest/services/Smartgov/SmartgovLayer/MapServer/0",
-          fields: { parcel_id: ["PARCEL_NO"], use_code: ["N_Codes"] },
-          ownerCompose: { org: "ORG_NAME", last: "LAST_NAME", first: "FIRST_NAME" },
-          notes: "County parcels with owner name parts; values come from the State join."
+          fields: {
+            parcel_id: ["PIN", "PARCEL_NO"],
+            owner: ["OWNER_NAME"],
+            situs_address: ["SitusAddr"],
+            situs_city: ["CITY"],
+            taxable_value: ["TAX_VALUE"],
+            total_value: ["MARKET_VAL"],
+            land_acres: ["TOT_ACRES"],
+            use_code: false,
+            use_description: false
+          },
+          notes: "County parcels with owner name, taxable and market values and acres (observed live; no pagination support, so the app pages by object id). Land use comes from the State join."
         },
         {
           id: "mason-tax-parcels",
@@ -2675,22 +2601,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Tax Parcels (Mason County parcel viewer)",
           publisher: "Mason County GIS",
           url: "https://gis.masoncountywa.gov/arcgis/rest/services/MasonCoSite/TaxParcels/MapServer/0",
-          fields: { parcel_id: ["PARCEL_NO"], use_code: ["N_Codes"] },
+          fields: { parcel_id: ["PIN", "PARCEL_NO"], situs_address: ["Address1"], situs_city: ["City"], land_acres: ["TotalAcres"], use_code: false, use_description: false },
           notes: "Public parcel polygons; attributes resolved at run time."
         },
-        STATEWIDE_ENRICH,
-        wisaardOwnerEnrich(22, "Mason", { parcel_id: ["PARCEL_NO", "PARCEL_ID"], owner: ["NAME", "OWNER"] })
-      ]
-    },
-    {
-      key: "grays_harbor",
-      name: "Grays Harbor County",
-      counties: ["Grays Harbor"],
-      useCodeScheme: "dor",
-      assessorLink: "https://graysharborwa.taxsifter.com/Assessor.aspx?parcelNumber={parcel}",
-      sources: [
-        { ...STATEWIDE.sources[0], id: "wa-current-parcels-grays-harbor", enrich: false },
-        wisaardOwnerEnrich(13, "Grays Harbor", { parcel_id: ["PARCELATT"], owner: ["OWNER"], owner_address: ["ADDRESS"] })
+        STATEWIDE_ENRICH
       ]
     },
     {
@@ -2705,43 +2619,54 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           geometry: true,
           confidence: "confirmed",
           name: "Parcels (Lewis County public base layers)",
-          publisher: "Lewis County GIS",
+          publisher: "Lewis County GIS / Assessor",
           url: "https://arcgis.lewiscountywa.gov/arcgispublic/rest/services/Public/BaseLayers/MapServer/0",
-          fields: { parcel_id: ["PIN", "PARCEL_NO"] },
-          notes: "County parcel polygons; attributes resolved at run time, values from the State join."
-        },
-        STATEWIDE_ENRICH
+          fields: {
+            parcel_id: ["PIN"],
+            owner: ["OWNER"],
+            owner_address: ["MAILADD"],
+            situs_address: ["SITEADD"],
+            taxable_value: false,
+            land_value: ["VAL_LAND"],
+            improvement_value: ["VAL_IMPVT"],
+            total_value: ["VAL_TOTAL"],
+            land_acres: ["TOTAL_ACRE"],
+            use_code: ["PROP_TYPE"],
+            use_description: ["USE_DESC", "LUNAME"]
+          },
+          notes: "County parcels with owner, land/improvement/total values, acres and use description (observed live)."
+        }
       ]
     },
     {
       key: "chelan",
       name: "Chelan County",
       counties: ["Chelan"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: null,
       sources: [
         {
+          id: "wenatchee-chelan-parcels",
+          geometry: true,
+          enrich: true,
+          confidence: "confirmed",
+          name: "Chelan County Parcel Layer (City of Wenatchee GIS)",
+          publisher: "City of Wenatchee (Chelan County PACS data)",
+          url: "https://maps.wenatcheewa.gov/server/rest/services/Parcels/MapServer/0",
+          fields: CHELAN_FIELDS,
+          notes: "Weekly copy of the county parcel layer with owner name, situs, acres and the assessor link (observed live)."
+        },
+        {
           id: "chelan-parcels-owners",
           geometry: true,
-          confidence: "likely",
+          confidence: "confirmed",
           name: "Parcels with owners (Chelan County Atlas)",
           publisher: "Chelan County GIS / Assessor (PACS)",
           url: "https://atlas.co.chelan.wa.us/arcgis/rest/services/GIS/ParcelsOwners/MapServer/0",
-          fields: { parcel_id: ["PARCEL_ID", "PARCEL", "PROP_ID"], owner: ["OWNER", "OWNER_NAME", "file_as_name"] },
-          notes: "Parcels joined to PACS owner name and site address; other attributes resolved at run time."
+          fields: { ...CHELAN_FIELDS, land_acres: false, assessor_link: false, owner_address: false },
+          notes: "County parcels joined to PACS owner name and site address (observed live)."
         },
-        {
-          id: "wenatchee-chelan-parcels",
-          geometry: true,
-          confidence: "likely",
-          name: "Chelan County Parcel Layer (City of Wenatchee GIS)",
-          publisher: "City of Wenatchee (Chelan County data)",
-          url: "https://maps.wenatcheewa.gov/server/rest/services/Parcels/MapServer/0",
-          fields: {},
-          notes: "Weekly copy of the county parcel layer; attributes resolved at run time."
-        },
-        STATEWIDE_ENRICH,
-        wisaardOwnerEnrich(4, "Chelan", { parcel_id: ["PARCEL_ID"], owner: ["OWNER"], situs_address: ["SITUS"], land_acres: ["DEEDED_AC", "CALC_AC"] })
+        STATEWIDE_ENRICH
       ]
     },
     {
@@ -2758,48 +2683,52 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Parcels (Island County Geocortex base)",
           publisher: "Island County GIS / Assessor",
           url: "https://maps.islandcountywa.gov/arcgis/rest/services/Geocortex/Base/MapServer/0",
-          fields: { parcel_id: ["ParcelNo"] },
-          notes: "Assessor-managed parcels; attributes resolved at run time."
+          fields: {
+            parcel_id: ["ParcelNo", "PID"],
+            owner: ["taxpayer"],
+            owner_address: ["mailing_addr1"],
+            situs_address: ["physical_addr"],
+            situs_city: ["physical_addr_city"],
+            taxable_value: false,
+            land_value: ["land_value"],
+            improvement_value: ["improvement_value"],
+            total_value: ["assessed_value", "market_value"],
+            land_acres: ["legal_acreage", "GIS_Acres"],
+            use_code: ["property_land_use_code"],
+            use_description: false,
+            assessor_link: ["smartgov_url"]
+          },
+          notes: "Assessor-managed parcels with taxpayer, values, acreage and land-use code (observed live)."
         },
-        STATEWIDE_ENRICH,
-        wisaardOwnerEnrich(14, "Island", { parcel_id: ["PARCEL_ID"], owner: ["OWNER"], situs_address: ["SITUS"], land_acres: ["DEEDED_AC", "CALC_AC"] })
+        STATEWIDE_ENRICH
       ]
     },
     {
       key: "walla_walla",
       name: "Walla Walla County",
       counties: ["Walla Walla"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: null,
       sources: [
+        { ...STATEWIDE.sources[0], id: "wa-current-parcels-walla-walla" },
         {
           id: "wallawalla-parcels-cp",
-          geometry: true,
-          confidence: "likely",
-          name: "Parcels_CP (Walla Walla County)",
+          geometry: false,
+          enrich: true,
+          confidence: "confirmed",
+          name: "Parcels, College Place (Walla Walla County)",
           publisher: "Walla Walla County GIS / Assessor",
           url: "https://services1.arcgis.com/1Wj8xAact2ptcedL/arcgis/rest/services/Parcels_CP/FeatureServer/0",
-          fields: { parcel_id: ["PARCEL"], owner: ["OWNER"] },
-          notes: "County tax parcels; attributes resolved at run time."
-        },
-        {
-          id: "franklin-mirror-wallawalla",
-          geometry: true,
-          confidence: "confirmed",
-          name: "Walla Walla County Tax Parcels (Franklin County GIS mirror)",
-          publisher: "Franklin County GIS (mirror)",
-          url: "https://gisportal.franklin.co.franklin.wa.us/arcgis/rest/services/irrigation/Walla_Walla_County_Parcels/MapServer/0",
-          fields: { parcel_id: ["PARCEL"], owner: ["OWNER"] },
-          notes: "Regional mirror with parcel number and owner."
-        },
-        STATEWIDE_ENRICH
+          fields: { parcel_id: ["PARCEL"], owner: ["OWNER"], situs_address: ["Address"], land_acres: ["Acreage"], assessor_link: ["PACSLINK"] },
+          notes: "Covers the City of College Place only; joined for owner and acreage where available."
+        }
       ]
     },
     {
       key: "franklin",
       name: "Franklin County",
       counties: ["Franklin"],
-      useCodeScheme: "county",
+      useCodeScheme: "dor",
       assessorLink: "http://terra.co.franklin.wa.us/TaxSifter/Search/Results.aspx?q={parcel}",
       sources: [
         {
@@ -2810,17 +2739,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           publisher: "Franklin County GIS / Assessor",
           url: "https://gisportal.franklin.co.franklin.wa.us/arcgis/rest/services/assessor/Parcels_with_Owner_Name/MapServer/0",
           fields: { parcel_id: ["ParcelNumber", "ParcelID"] },
-          notes: "Assessor parcel layer with owner names; attributes resolved at run time."
-        },
-        {
-          id: "franklin-parcels",
-          geometry: true,
-          confidence: "likely",
-          name: "Parcels (Franklin County GIS)",
-          publisher: "Franklin County GIS",
-          url: "https://gisportal.franklin.co.franklin.wa.us/arcgis/rest/services/Parcels/MapServer/0",
-          fields: { parcel_id: ["ParcelNumber", "PARCELNUMB"] },
-          notes: "County parcels with situs and acreage; owner may not be published."
+          notes: "Documented assessor parcel layer with owner names; the server returned errors when probed, so the State layer covers Franklin until it returns."
         },
         STATEWIDE_ENRICH
       ]
@@ -2829,8 +2748,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       key: "benton",
       name: "Benton County",
       counties: ["Benton"],
-      useCodeScheme: "county",
-      assessorLink: null,
+      useCodeScheme: "dor",
+      assessorLink: "https://property.spatialest.com/wa/benton#/property/{parcel}",
       sources: [
         {
           id: "benton-parcels-assess",
@@ -2839,8 +2758,22 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "Parcels and Assessment (Benton County ArcGIS Online)",
           publisher: "Benton County GIS / Assessor",
           url: "https://services7.arcgis.com/NURlY7V8UHl6XumF/ArcGIS/rest/services/Parcels_and_Assess/FeatureServer/0",
-          fields: { parcel_id: ["Parcel_ID"] },
-          notes: "County parcels with assessment attributes; field names resolved at run time."
+          fields: {
+            parcel_id: ["Parcel_ID"],
+            owner: ["owner_name"],
+            owner_address: ["owner_address"],
+            situs_address: ["situs_address"],
+            taxable_value: false,
+            land_value: ["LandVal"],
+            improvement_value: ["imprv_val"],
+            total_value: ["appraised_val"],
+            land_acres: ["legal_acres"],
+            land_sqft: ["land_sqft"],
+            use_code: ["primary_use"],
+            use_description: false
+          },
+          linkIdField: "Prop_ID",
+          notes: "County parcels (CORS enabled) with owner, appraised values, legal acres and primary use (observed live)."
         },
         STATEWIDE_ENRICH
       ]
@@ -2855,27 +2788,49 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         {
           id: "kittitas-taxparcel-query",
           geometry: true,
-          confidence: "likely",
+          confidence: "confirmed",
           name: "Tax Parcel Query (Kittitas County COMPAS)",
           publisher: "Kittitas County GIS / Assessor",
           url: "https://gis.co.kittitas.wa.us/kcgis/rest/services/COMPAS/TaxParcelQuery/MapServer/0",
-          fields: {},
-          notes: "Parcel query layer behind the county property dashboard; attributes resolved at run time."
+          fields: {
+            parcel_id: ["PARCELID", "t2_ParcelNumber"],
+            owner: ["t2_Owner"],
+            owner_address: ["t2_Address1"],
+            situs_address: ["t2_Situs"],
+            situs_city: false,
+            // t2_SitusCity holds suite numbers on this layer
+            taxable_value: false,
+            improvement_value: ["t2_ValueImp"],
+            use_description: ["landuse_name"],
+            assessor_link: false
+          },
+          notes: "Parcel query layer behind the county property dashboard: owner, situs, land-use name (observed live)."
         },
         {
           id: "kittitas-open-data-parcels",
           geometry: true,
-          confidence: "likely",
+          enrich: true,
+          confidence: "confirmed",
           name: "Tax Parcels (Kittitas County Open Data)",
           publisher: "Kittitas County GIS",
           url: "https://gis.co.kittitas.wa.us/kcgis/rest/services/OpenData/Parcels/MapServer/1",
-          fields: {},
-          notes: "Open-data parcel layer; attributes resolved at run time."
+          fields: {
+            parcel_id: ["PARCELID", "t2_parcelNumber"],
+            owner: ["t2_Owner"],
+            situs_address: ["t2_Situs"],
+            situs_city: ["t2_SitusCity"],
+            taxable_value: false,
+            land_value: ["t2_ValueLand"],
+            improvement_value: ["t2_MarketBuildingValue", "t2_ValueImp"],
+            total_value: ["t2_ValueMrkt"],
+            use_code: ["t2_SecondaryLandUse"]
+          },
+          notes: "Open-data parcel layer with land, building and market values (observed live); joined for values."
         },
         STATEWIDE_ENRICH
       ]
     }
-  );
+  ];
 
   // js/dor_codes.js
   var DOR_LAND_USE = {
@@ -3038,7 +2993,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         const table = await loadLookup(lookup, part, signal);
         for (const a of pending) {
           if ((lookup.byField ? a._rawCounty || "" : "") !== part) continue;
-          const desc = table.get(String(a._lookupCode).trim());
+          const code = String(a._lookupCode).trim();
+          const desc = table.get(code) ?? table.get(`${part}-${code}`) ?? table.get(`${String(Number(part))}-${code}`);
           if (desc) {
             a[lookup.target] = desc;
             a._sourceFields[lookup.target] = `${lookup.sourceField} via ${lookup.valueField} lookup`;
@@ -3103,10 +3059,13 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         out._sourceFields.use_description = `${m.use_code} (domain)`;
       }
     }
-    if (!out.situs_address && Array.isArray(source.situsCompose)) {
+    if (Array.isArray(source.situsCompose)) {
       const parts = source.situsCompose.map((f) => cleanText(getField(props, f))).filter(Boolean);
-      out.situs_address = parts.join(" ").replace(/\s+/g, " ").trim();
-      if (out.situs_address) out._sourceFields.situs_address = source.situsCompose.join(" + ");
+      const composed = parts.join(" ").replace(/\s+/g, " ").trim();
+      if (composed) {
+        out.situs_address = composed;
+        out._sourceFields.situs_address = source.situsCompose.join(" + ");
+      }
     }
     if (source.linkIdField) out._linkId = cleanText(getField(props, source.linkIdField));
     if (!out.owner && source.ownerCompose) {
@@ -3119,7 +3078,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (out.owner) out._sourceFields.owner = [c.org, c.last, c.first, c.middle].filter(Boolean).join(" / ");
     }
     for (const [attr, spec] of Object.entries(source.computed || {})) {
-      if (out[attr] === null || out[attr] === void 0 || out[attr] === "") {
+      const empty = out[attr] === null || out[attr] === void 0 || out[attr] === "";
+      if (empty || prep.how?.[attr] === "heuristic") {
         if (spec.sum) {
           const v = sumFields(props, spec.sum);
           if (v !== null) {
@@ -3166,7 +3126,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (attrs.use_description) return attrs.use_description;
     const code = attrs.use_code;
     if (!code) return "";
-    const combined = String(code).match(/^(\d{1,4})\s*[-:]?\s+([A-Za-z].*)$/);
+    const combined = String(code).match(/^\(?(\d{1,4})\)?\s*[-:]?\s+([A-Za-z].*)$/);
     if (combined) return `${combined[2].trim()} (${combined[1]})`;
     if (provider.useCodeScheme === "dor" || provider.useCodeScheme === "dor-prefix") {
       const d = decodeDOR(code);
@@ -3327,15 +3287,17 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const countyJobs = counties.map(async (county) => {
         const provider = this.providerFor(county);
         if (provider) {
-          const ok = await this.runProvider(provider, bbox, county, records, report, signal);
-          if (ok) return { county, ok: true };
+          const added = await this.runProvider(provider, bbox, county, records, report, signal);
+          if (added !== false && added > 0) return { county, ok: true };
         }
         return { county, ok: false };
       });
       const results = await Promise.all(countyJobs);
       const needStatewide = results.filter((r) => !r.ok).map((r) => r.county);
       if (needStatewide.length || counties.length === 0) {
-        await this.runProvider(this.statewide, bbox, null, records, report, signal, counties.length ? new Set(needStatewide.map((c) => c.toLowerCase())) : null);
+        const r = await this.runProvider(this.statewide, bbox, null, records, report, signal, counties.length ? new Set(needStatewide.map((c) => c.toLowerCase())) : null);
+        if (r === false && !statuses.some((s) => s.ok && s.role === "primary")) {
+        }
       }
       return { records: [...records.values()], statuses, counties };
     }
@@ -3350,10 +3312,19 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         try {
           const prep = await prepareSource(source, { signal });
           const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ["*"] });
-          primary = source;
-          primaryPrep = prep;
-          primaryFC = fc;
-          break;
+          if (!fc.features.length && !primary) {
+            primary = source;
+            primaryPrep = prep;
+            primaryFC = fc;
+            report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: "primary", count: 0, county, confidence: source.confidence, fieldMap: prep.fieldMap, note: "no parcels in this area" });
+            continue;
+          }
+          if (fc.features.length) {
+            primary = source;
+            primaryPrep = prep;
+            primaryFC = fc;
+            break;
+          }
         } catch (err) {
           if (isAbort(err) || signal?.aborted) throw err;
           errors.push({ source: source.name, url: source.url, error: err.message || String(err) });
@@ -3409,23 +3380,25 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           added += 1;
         }
       }
-      report({
-        provider: provider.key,
-        providerName: provider.name,
-        source: primary.name,
-        url: primary.url,
-        ok: true,
-        role: "primary",
-        count: added,
-        truncated: primaryFC.truncated,
-        fieldMap: primaryPrep.fieldMap,
-        how: primaryPrep.how,
-        layerName: primaryPrep.info.name,
-        county,
-        errors,
-        confidence: primary.confidence
-      });
-      return true;
+      if (primaryFC.features.length) {
+        report({
+          provider: provider.key,
+          providerName: provider.name,
+          source: primary.name,
+          url: primary.url,
+          ok: true,
+          role: "primary",
+          count: added,
+          truncated: primaryFC.truncated,
+          fieldMap: primaryPrep.fieldMap,
+          how: primaryPrep.how,
+          layerName: primaryPrep.info.name,
+          county,
+          errors,
+          confidence: primary.confidence
+        });
+      }
+      return added;
     }
   };
 
@@ -3492,9 +3465,32 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       type: r.type
     }));
   }
+  function jsonp(url, { timeoutMs = 15e3 } = {}) {
+    return new Promise((resolve, reject) => {
+      const cb = `__geocb_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+      const script = document.createElement("script");
+      const done = (fn) => (v) => {
+        clearTimeout(timer);
+        delete window[cb];
+        script.remove();
+        fn(v);
+      };
+      const timer = setTimeout(done(() => reject(new Error("JSONP timeout"))), timeoutMs);
+      window[cb] = done(resolve);
+      script.onerror = done(() => reject(new Error("JSONP load error")));
+      script.src = `${url}&callback=${cb}`;
+      document.head.appendChild(script);
+    });
+  }
   async function census(q, opts) {
-    const params = new URLSearchParams({ address: q, benchmark: "Public_AR_Current", format: "json" });
-    const data = await getJson(`${CENSUS}?${params}`, opts);
+    const params = new URLSearchParams({ address: q, benchmark: "Public_AR_Current", format: "jsonp" });
+    const url = `${CENSUS}?${params}`;
+    let data;
+    try {
+      data = await getJson(url.replace("format=jsonp", "format=json"), opts);
+    } catch {
+      data = await jsonp(url);
+    }
     return (data?.result?.addressMatches || []).map((m) => ({
       lat: Number(m.coordinates.y),
       lon: Number(m.coordinates.x),
@@ -3518,7 +3514,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const ll = parseLatLon(q);
     if (ll) return [{ ...ll, label: `${ll.lat.toFixed(6)}, ${ll.lon.toFixed(6)}`, source: "coordinates", type: "point" }];
     const errors = [];
-    for (const svc of [nominatim, census, photon]) {
+    for (const svc of [photon, nominatim, census]) {
       try {
         const rows = (await svc(q, { signal })).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon));
         if (rows.length) {
