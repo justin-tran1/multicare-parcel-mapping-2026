@@ -19,9 +19,13 @@ test('screenshots of the study view and print exhibit', async ({ page }) => {
   await page.evaluate(() => {
     window.print = () => {};
   });
-  await page.click('#btn-print');
-  await page.waitForTimeout(1200);
   await page.setViewportSize({ width: 1700, height: 1100 });
-  await page.waitForTimeout(400);
+  await page.click('#btn-print');
+  await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+  await page.waitForTimeout(500);
+  await expect(page.locator('.print-table table')).toHaveCount(1);
   await page.screenshot({ path: `${OUT}/exhibit.png`, fullPage: true });
+  // the layout restores itself when the print dialog closes (or after a short timeout)
+  await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+  await expect(page.locator('.print-table')).toHaveCount(0);
 });

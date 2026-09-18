@@ -537,6 +537,7 @@ async function runStudy({ fit = false } = {}) {
     setMapStatus(okPrimary.length ? '' : 'No parcel service responded for this location');
     if (!okPrimary.length) toast('No parcel data source responded for this location. See Data sources in the sidebar.', { error: true, ms: 7000 });
     updateDefaultTitles();
+    updateMcSummary();
     restyleAll();
     if (fit) fitRing();
   } catch (err) {

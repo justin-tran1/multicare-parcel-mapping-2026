@@ -140,9 +140,9 @@ function mergeAttrs(primary, extras) {
       if (empty && has) {
         out[k] = v;
         out._sourceFields[k] = `${extra._sourceFields[k]} (${extra._sourceName})`;
+        if (k === 'owner' && extra._ownerNote) out._ownerNote = extra._ownerNote;
       }
     }
-    if (!out._ownerNote && extra._ownerNote && out.owner === extra.owner) out._ownerNote = extra._ownerNote;
   }
   return out;
 }
