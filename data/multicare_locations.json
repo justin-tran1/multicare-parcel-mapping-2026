@@ -1,0 +1,15 @@
+{
+  "note": "MultiCare Health System hospital and major campus street addresses in Washington. Coordinates are resolved at runtime by geocoding and cached in the browser; a parcel containing one of these points is flagged 'MultiCare occupied'. Extend this list (or mark parcels manually in the app) for clinics and leased space.",
+  "locations": [
+    { "name": "MultiCare Tacoma General Hospital", "address": "315 Martin Luther King Jr Way", "city": "Tacoma", "county": "Pierce", "type": "Hospital" },
+    { "name": "MultiCare Mary Bridge Children's Hospital", "address": "317 Martin Luther King Jr Way", "city": "Tacoma", "county": "Pierce", "type": "Hospital" },
+    { "name": "MultiCare Allenmore Hospital", "address": "1901 S Union Ave", "city": "Tacoma", "county": "Pierce", "type": "Hospital" },
+    { "name": "MultiCare Good Samaritan Hospital", "address": "401 15th Ave SE", "city": "Puyallup", "county": "Pierce", "type": "Hospital" },
+    { "name": "MultiCare Auburn Medical Center", "address": "202 N Division St", "city": "Auburn", "county": "King", "type": "Hospital" },
+    { "name": "MultiCare Covington Medical Center", "address": "17700 SE 272nd St", "city": "Covington", "county": "King", "type": "Hospital" },
+    { "name": "MultiCare Capital Medical Center", "address": "3900 Capital Mall Dr SW", "city": "Olympia", "county": "Thurston", "type": "Hospital" },
+    { "name": "MultiCare Deaconess Hospital", "address": "800 W 5th Ave", "city": "Spokane", "county": "Spokane", "type": "Hospital" },
+    { "name": "MultiCare Valley Hospital", "address": "12606 E Mission Ave", "city": "Spokane Valley", "county": "Spokane", "type": "Hospital" },
+    { "name": "MultiCare Yakima Memorial Hospital", "address": "2811 Tieton Dr", "city": "Yakima", "county": "Yakima", "type": "Hospital" }
+  ]
+}

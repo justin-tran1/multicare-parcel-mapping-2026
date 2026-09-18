@@ -1,0 +1,34 @@
+{
+  "name": "multicare-parcel-mapping",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test 'tests/unit/**/*.test.mjs'",
+    "vendor": "node scripts/vendor.mjs",
+    "build:counties": "node scripts/build-counties.mjs",
+    "build:single": "node scripts/build-single.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test:e2e": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justin-tran1/multicare-parcel-mapping-2026.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/justin-tran1/multicare-parcel-mapping-2026/issues"
+  },
+  "homepage": "https://github.com/justin-tran1/multicare-parcel-mapping-2026#readme",
+  "type": "module",
+  "private": "true",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "esbuild": "^0.28.2",
+    "leaflet": "^1.9.4",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1"
+  }
+}
