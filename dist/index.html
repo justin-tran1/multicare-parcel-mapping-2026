@@ -918,15 +918,15 @@ body.print-mode .print-table { display: grid; grid-template-columns: repeat(var(
 body.print-mode .print-table table.parcels { font-size: 7.6pt; table-layout: fixed; width: 100%; }
 body.print-mode .print-table table.parcels th, body.print-mode .print-table table.parcels td { padding: 0 3px; border-bottom: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.print-mode .print-table table.parcels th { position: static; background: #fff; border-bottom: 1px solid var(--cbre-green); font-size: 7.6pt; }
-body.print-mode .print-table table.parcels td.id { width: 18px; }
-body.print-mode .print-table table.parcels td.num { width: 52px; }
-body.print-mode .print-table table.parcels td:nth-child(5) { max-width: 70px; }
+body.print-mode .print-table table.parcels th.id, body.print-mode .print-table table.parcels td.id { width: 20px; }
+body.print-mode .print-table table.parcels th.num, body.print-mode .print-table table.parcels td.num { width: 54px; }
+body.print-mode .print-table table.parcels th:nth-child(5), body.print-mode .print-table table.parcels td:nth-child(5) { width: 92px; }
 body.print-mode .print-table .sup { display: none; }
 body.print-mode .print-totals { grid-column: 1 / -1; font-size: 7.6pt; font-weight: 700; color: var(--cbre-green); border-top: 1px solid var(--cbre-green); margin-top: 3px; padding-top: 2px; }
 body.print-mode .main { grid-template-columns: minmax(0, 1fr) auto; }
-body.print-mode .results { width: 4.2in; }
-body.print-mode .results:has(.print-table[style*="--cols: 2"]) { width: 7.6in; }
-body.print-mode .results:has(.print-table[style*="--cols: 3"]) { width: 10in; }
+body.print-mode .results { width: 4.7in; }
+body.print-mode .results:has(.print-table[style*="--cols: 2"]) { width: 8.4in; }
+body.print-mode .results:has(.print-table[style*="--cols: 3"]) { width: 10.6in; }
 body.print-mode .exhibit-footer {
   grid-area: foot; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
   padding: 6px 14px; font-size: 7pt; color: var(--text-muted); border-top: 1px solid var(--light-grey);
@@ -2589,9 +2589,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         if (empty && has) {
           out[k] = v;
           out._sourceFields[k] = `${extra._sourceFields[k]} (${extra._sourceName})`;
+          if (k === "owner" && extra._ownerNote) out._ownerNote = extra._ownerNote;
         }
       }
-      if (!out._ownerNote && extra._ownerNote && out.owner === extra.owner) out._ownerNote = extra._ownerNote;
     }
     return out;
   }
@@ -3844,6 +3844,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       setMapStatus(okPrimary.length ? "" : "No parcel service responded for this location");
       if (!okPrimary.length) toast("No parcel data source responded for this location. See Data sources in the sidebar.", { error: true, ms: 7e3 });
       updateDefaultTitles();
+      updateMcSummary();
       restyleAll();
       if (fit) fitRing();
     } catch (err) {
