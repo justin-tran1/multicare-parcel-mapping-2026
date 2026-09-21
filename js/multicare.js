@@ -17,10 +17,16 @@ export const DEFAULT_PATTERNS = [
   { pattern: 'MULTI CARE', entity: 'MultiCare Health System', relationship: 'owned' },
   { pattern: 'MULTICARE HEALTH SYSTEM', entity: 'MultiCare Health System', relationship: 'owned' },
   { pattern: 'TACOMA GENERAL HOSP', entity: 'MultiCare Tacoma General Hospital', relationship: 'owned' },
+  { pattern: 'TACOMA GENERAL ALLENMORE', entity: 'MultiCare Tacoma General Allenmore Hospital', relationship: 'owned' },
   { pattern: 'MARY BRIDGE', entity: 'MultiCare Mary Bridge Children’s Hospital', relationship: 'owned' },
   { pattern: 'ALLENMORE HOSP', entity: 'MultiCare Allenmore Hospital', relationship: 'owned' },
+  // "MHS" is MultiCare's own abbreviation in facility registrations (e.g. "MHS Good Samaritan Hospital")
+  { pattern: 'MHS GOOD SAMARITAN', entity: 'MultiCare Good Samaritan Hospital (Puyallup)', relationship: 'owned', counties: ['Pierce', 'King'] },
+  { pattern: 'MHS TACOMA GENERAL', entity: 'MultiCare Tacoma General Hospital', relationship: 'owned', counties: ['Pierce', 'King'] },
+  { pattern: 'MHS ALLENMORE', entity: 'MultiCare Allenmore Hospital', relationship: 'owned', counties: ['Pierce', 'King'] },
+  { pattern: 'MHS MARY BRIDGE', entity: 'MultiCare Mary Bridge Children’s Hospital', relationship: 'owned', counties: ['Pierce', 'King'] },
   { pattern: 'GOOD SAMARITAN HOSP', entity: 'MultiCare Good Samaritan Hospital (Puyallup)', relationship: 'owned', counties: ['Pierce'] },
-  { pattern: 'GOOD SAMARITAN COMMUNITY HEALTH', entity: 'MultiCare Good Samaritan (Puyallup)', relationship: 'owned', counties: ['Pierce'] },
+  { pattern: 'GOOD SAMARITAN COMMUNITY HEALTH', entity: 'MultiCare Good Samaritan (Puyallup; pre-2010 corporate name Good Samaritan Community Healthcare)', relationship: 'owned', counties: ['Pierce'] },
   { pattern: 'AUBURN REGIONAL MEDICAL', entity: 'MultiCare Auburn Medical Center', relationship: 'owned' },
   { pattern: 'AUBURN MEDICAL CENTER', entity: 'MultiCare Auburn Medical Center', relationship: 'owned', counties: ['King'] },
   { pattern: 'COVINGTON MEDICAL CENTER', entity: 'MultiCare Covington Medical Center', relationship: 'owned' },
@@ -28,9 +34,11 @@ export const DEFAULT_PATTERNS = [
   { pattern: 'VALLEY HOSPITAL', entity: 'MultiCare Valley Hospital (Spokane Valley)', relationship: 'owned', counties: ['Spokane'] },
   { pattern: 'ROCKWOOD CLINIC', entity: 'MultiCare Rockwood Clinic', relationship: 'owned' },
   { pattern: 'ROCKWOOD HEALTH', entity: 'MultiCare Rockwood', relationship: 'owned', counties: ['Spokane'] },
-  { pattern: 'INLAND NORTHWEST HEALTH', entity: 'MultiCare Inland Northwest', relationship: 'owned', counties: ['Spokane'] },
+  // "Inland Northwest Health Services" (INHS) is a separate, Providence-linked nonprofit, so the
+  // regional brand "MultiCare Inland Northwest" is not matched on its own.
+  { pattern: 'MULTICARE INLAND NORTHWEST', entity: 'MultiCare Inland Northwest', relationship: 'owned', counties: ['Spokane'] },
   { pattern: 'CAPITAL MEDICAL CENTER', entity: 'MultiCare Capital Medical Center (Olympia)', relationship: 'owned' },
-  { pattern: 'YAKIMA VALLEY MEMORIAL', entity: 'MultiCare Yakima Memorial Hospital', relationship: 'owned' },
+  { pattern: 'YAKIMA VALLEY MEMORIAL', entity: 'MultiCare Yakima Memorial Hospital (Yakima Valley Memorial Hospital Association)', relationship: 'owned' },
   { pattern: 'VIRGINIA MASON MEMORIAL', entity: 'MultiCare Yakima Memorial (formerly Virginia Mason Memorial)', relationship: 'historical_name', counties: ['Yakima'] },
   { pattern: 'MEMORIAL HOSPITAL ASSOC', entity: 'Yakima Valley Memorial Hospital Association (MultiCare)', relationship: 'owned', counties: ['Yakima'] },
   { pattern: 'INDIGO URGENT CARE', entity: 'MultiCare Indigo Urgent Care', relationship: 'owned' },
@@ -48,7 +56,9 @@ export const DEFAULT_PATTERNS = [
 export const FALSE_POSITIVES = [
   'CARE NET', // Care Net pregnancy centers (e.g. "CARE NET/Allenmore Children & Youth")
   'VALLEY MEDICAL CENTER', // Renton, UW Medicine
+  'PUBLIC HOSPITAL DISTRICT', // e.g. Public Hospital District No. 1 of King County (Valley Medical Center)
   'GOOD SAMARITAN SOCIETY', // Evangelical Lutheran Good Samaritan Society senior living
+  'INLAND NORTHWEST HEALTH SERVICES', // INHS: separate nonprofit (St. Luke's Rehabilitation), Providence-linked
 ];
 
 export function normalizeName(s) {

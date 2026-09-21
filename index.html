@@ -95,7 +95,7 @@
 
       <section class="panel" aria-labelledby="h-mc">
         <h2 id="h-mc">4. MultiCare matching</h2>
-        <p class="hint">Owner and taxpayer names are matched against MultiCare Health System and its hospitals, clinics, foundations, and joint ventures. Add extra name fragments below, one per line (optionally <code>| affiliate</code>, <code>| joint_venture</code>).</p>
+        <p class="hint">Taxpayer and legal-owner (deed) names are matched against MultiCare Health System and its hospitals, clinics, foundations, and joint ventures; a MultiCare business name on a parcel marks it occupied, not owned. Add extra name fragments below, one per line (optionally <code>| affiliate</code>, <code>| joint_venture</code>).</p>
         <textarea id="extra-patterns" rows="3" placeholder="e.g. HEALTHCARE REALTY | affiliate"></textarea>
         <p class="hint" id="mc-summary"></p>
       </section>
@@ -119,7 +119,7 @@
 
       <section class="panel small" aria-labelledby="h-help">
         <h2 id="h-help">About</h2>
-        <p class="hint">Radius rings are measured on the WGS84 ellipsoid. A parcel is listed when any part of it touches or falls within the ring. Values marked * are total market or land + improvement values where the assessor does not publish a taxable value; acreage marked † is computed from the parcel polygon. Verify with the county assessor before relying on any figure.</p>
+        <p class="hint">Radius rings are measured on the WGS84 ellipsoid. A parcel is listed when any part of it touches or falls within the ring. Values marked * are total market or land + improvement values where the assessor does not publish a taxable value; acreage marked † is computed from the parcel polygon. Owners marked § are the grantee on the latest recorded deed because the source withholds taxpayer names; sales marked ~ were not treated as arm’s-length market sales by the assessor. Zoning is read from the jurisdiction’s zoning-district layer at the parcel’s label point. Verify with the county assessor before relying on any figure.</p>
       </section>
     </aside>
 
@@ -137,8 +137,11 @@
           <div class="results-title" id="results-title">Parcels within ring</div>
           <div class="results-meta" id="results-meta">Drop a pin to list parcels.</div>
           <div class="results-actions">
+            <label class="check small"><input id="col-legal" type="checkbox" checked> Legal owner</label>
             <label class="check small"><input id="col-parcel" type="checkbox"> Parcel #</label>
             <label class="check small"><input id="col-address" type="checkbox"> Address</label>
+            <label class="check small"><input id="col-zoning" type="checkbox" checked> Zoning</label>
+            <label class="check small"><input id="col-sale" type="checkbox" checked> Last sale</label>
             <label class="check small"><input id="col-distance" type="checkbox"> Distance</label>
             <button class="btn btn-outline small" type="button" id="btn-renumber" disabled title="Assign IDs in the current table order">Renumber by sort</button>
             <button class="icon-btn" type="button" id="btn-results-toggle" aria-label="Collapse table" title="Collapse table">&#9660;</button>

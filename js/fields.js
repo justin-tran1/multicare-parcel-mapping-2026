@@ -19,6 +19,15 @@ export const ATTRS = [
   'use_description',
   'assessor_link',
   'county',
+  'legal_owner',
+  'zoning',
+  'zoning_description',
+  'sale_date',
+  'sale_price',
+  'sale_grantor',
+  'sale_deed_type',
+  'business_name',
+  'exemption',
 ];
 
 const ADDRESSY = /(addr|address|city|state|zip|mail|street|line)/i;
@@ -30,8 +39,9 @@ const HEURISTICS = {
     prefer: /^(pin|apn|parcel|taxparcel|tax_?parcel|taxparcelnumber|parcelid|parcel_?(id|no|num|number|nbr)|parcel_id_nr|pid|pid_num|prop_?id)$/i,
   },
   owner: {
-    include: /(taxpayer|owner|ownr|deed_?holder|tax_?payer)/i,
-    exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of)/i,
+    include: /(taxpayer|owner|ownr|tax_?payer)/i,
+    // title/legal/deed-holder fields belong to legal_owner
+    exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of|title|legal|deed|grantee|record)/i,
     prefer: /name/i,
     deprioritize: /[2-9]$/,
   },
@@ -99,6 +109,48 @@ const HEURISTICS = {
     include: /(county|cnty|co_?name|county_?nm|county_?name)/i,
     exclude: /(fips|code|_cd$|id$|num)/i,
   },
+  legal_owner: {
+    include: /(title_?owner|deed_?holder|legal_?owner|grantee|buyer|record_?owner|owner_?of_?record)/i,
+    exclude: /(addr|address|city|state|zip|mail|id$|date|_dt$|type|code|count|flag)/i,
+    prefer: /name/i,
+  },
+  zoning: {
+    include: /(^zon(e|ing)|_zon(e|ing)|zone_?(code|cd|class|dist|district)|zoning_?(code|cd|class|dist|district)|zn_?code|zonecode|zoning$|zone$)/i,
+    exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date)/i,
+    prefer: /(zoning|zone_?code|zone_?cd|kca_?zoning)/i,
+  },
+  zoning_description: {
+    include: /(zon(e|ing).*(desc|description|name|label|text)|(desc|description|name).*zon(e|ing))/i,
+    exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date)/i,
+  },
+  sale_date: {
+    include: /(sale.*(date|_dt$|dt$)|(date|dt).*sale|deed_?date|document_?date|doc_?date|transfer_?date|trnsf_?date|xfer_?date|recording_?date|excise_?date|sold_?date|date_?sold|year_?sold|sale_?yr|sale_?year)/i,
+    exclude: /(appraisal|assess|inspect|insp|create|edit|modif|update|retire|effective|expir|permit|build|record_?type|link|url)/i,
+    prefer: /(sale_?date|saledate|document_?date|trnsf_?date|transfer_?date)/i,
+  },
+  sale_price: {
+    include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price|excise_?amount)/i,
+    exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise_?nbr|excise_?num|tax_?amt)/i,
+    prefer: /(sale_?price|saleprice|sale_?amount|saleamount|gross_?sale)/i,
+  },
+  sale_grantor: {
+    include: /(grantor|seller|sellr)/i,
+    exclude: /(addr|address|city|state|zip|id$|date|type|code)/i,
+  },
+  sale_deed_type: {
+    include: /(deed_?type|sale_?instrument|^instrument|transfer_?type|trnsf_?type|document_?type|doc_?type|sale_?type)/i,
+    exclude: /(date|_dt$|nbr|num|id$|code$)/i,
+  },
+  // The business operating on the parcel (occupant), which is not the owner of record.
+  business_name: {
+    include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name|company_?name)/i,
+    exclude: /(addr|address|owner|taxpayer|id$|code|type|date|_dt$)/i,
+  },
+  exemption: {
+    include: /(exempt)/i,
+    exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev)/i,
+    prefer: /(type|desc|description|code)/i,
+  },
 };
 
 function score(field, h) {
@@ -118,7 +170,38 @@ function score(field, h) {
 }
 
 const NUMERIC_TYPES = new Set(['esriFieldTypeDouble', 'esriFieldTypeSingle', 'esriFieldTypeInteger', 'esriFieldTypeSmallInteger', 'esriFieldTypeBigInteger']);
-const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value', 'total_value', 'land_acres', 'land_sqft']);
+const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value', 'total_value', 'land_acres', 'land_sqft', 'sale_price']);
+
+/**
+ * Parses an assessor date: epoch milliseconds (ArcGIS), ISO strings, "MM/DD/YYYY",
+ * "YYYYMMDD", or a plain year. Returns an ISO date string (YYYY-MM-DD) or null.
+ */
+export function toISODate(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') {
+    if (v > 1e11) return new Date(v).toISOString().slice(0, 10); // epoch ms
+    if (v > 1e9) return new Date(v * 1000).toISOString().slice(0, 10); // epoch s
+    if (v >= 18000101 && v <= 21001231) return `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6, 8)}`;
+    if (v >= 1800 && v <= 2100) return `${v}`;
+    return null;
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^([A-Za-z]{3})-(\d{4})$/); // "Jun-2026"
+  if (m) {
+    const mi = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(m[1].toLowerCase());
+    if (mi >= 0) return `${m[2]}-${String(mi + 1).padStart(2, '0')}`;
+  }
+  if (/^\d{4}$/.test(s)) return s;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
 
 /**
  * @param {{fields: {name, alias, type}[]}} layerInfo

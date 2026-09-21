@@ -205,6 +205,7 @@ table.parcels tbody tr { cursor: pointer; }
 table.parcels tbody tr:hover, table.parcels tbody tr.hl { background: #fff3ec; }
 table.parcels tfoot td { font-weight: 700; background: var(--panel-tint); border-top: 2px solid var(--cbre-green); }
 table.parcels .sup { color: var(--text-muted); font-size: 10px; }
+table.parcels td.zoning { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .empty { padding: 18px; color: var(--text-muted); text-align: center; }
 
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--dark-green); color: #fff; padding: 10px 16px; border-radius: 8px; z-index: 2000; box-shadow: 0 4px 16px rgba(0,0,0,0.3); max-width: 90vw; }

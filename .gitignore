@@ -4,3 +4,7 @@ playwright-report/
 .DS_Store
 *.log
 probe-report.json
+
+# weekly assessor extracts are built in CI, not committed
+data/assessor/
+site/

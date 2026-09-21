@@ -1,0 +1,21 @@
+{
+  "note": "Owner names from the CBRE 'MultiCare Allenmore Hospital | Tacoma, WA - Properties within 250 yards' reference exhibit, in exhibit ID order (IDs 1-60 and 63). Used by the unit tests and by scripts/validate-allenmore.mjs to check the live study.",
+  "center": { "address": "1901 S Union Ave, Tacoma, WA 98405", "lat": 47.2418, "lon": -122.4718 },
+  "radius": { "value": 250, "unit": "yd" },
+  "multicare": { "owned": [31, 32], "joint_venture": [16] },
+  "owners": [
+    "Healthcare Realty", "Healthcare Realty", "Ventas REIT", "NATIONWIDE HEALTH PROPERTIES INC", "Ventas REIT", "Healthcare Realty",
+    "Donald Hearon DDS", "Ventas REIT", "D Reed Kelley", "VFW", "Reeder Management Inc", "Vincent Kokich & Douglas Knight,DDS",
+    "John Fuchs", "Bank of America", "Tacoma Elks Lodge # 174", "Pulse Heart Institute", "Thomas & Kristi Lizotte",
+    "Ground lease (Columbia Bank)", "Healthcare Realty", "Healthcare Realty", "Wal-Mart", "Oliphant Real Estate Services",
+    "Oliphant Real Estate Services", "Mercedes G McGee", "Oliphant Real Estate Services", "Oliphant Real Estate Services",
+    "Oliphant Real Estate Services", "Oliphant Real Estate Services", "Oliphant Real Estate Services",
+    "CARE NET/Allenmore Children & Youth", "MULTICARE HEALTH SYSTEMS", "MULTICARE HEALTH SYSTEMS", "Life Center Church & School",
+    "STEVEN PAIGE", "Thomas G Taylor Jr", "SCHERBARTH KENNETH C J", "JAISIMHA IYENGAR", "AAA Auto Club", "JAISIMHA IYENGAR", "Key Bank",
+    "GLORIA DEI LUTHERAN CHURCH", "Jianjun Liu, Jingru Guan et al", "DUGAN JON", "LEONARD ELIZABETH & FRANTZ TOBY",
+    "MOSS JOHN & BETH L & HEATH GREGORY/ROBBI", "PETERSON LOUISE R", "FICHTNER EMILY & KURT", "WILLIAMS ERIC N & ALLISON M",
+    "HANSEN STEPHEN R & CHRISTINE M", "MONTGOMERY JUDITH M TTEE", "CHADDERDON JENNIFER M", "Home Partners of America",
+    "WHITELEY J V & WHITELEY-MEDIERAS SUSAN", "DIX MIRIAM M", "VAUGHN ERIC D", "PHILLIP RAMONA", "PARKER LORILYNN & AARON F",
+    "COURNOYER RENE", "LEWIS TROY", "FEDERICO MARIA", "Everlast Family & Cosmetic Dentistry"
+  ]
+}

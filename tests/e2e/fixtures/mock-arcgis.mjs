@@ -1,6 +1,8 @@
 // Mock ArcGIS REST services for end-to-end tests. Generates a synthetic parcel fabric
 // around a centre point and answers layer-metadata and /query requests the way the real
-// Tacoma (MapServer, GeoJSON) and Pierce County (FeatureServer) layers do.
+// Tacoma (MapServer, GeoJSON) and Pierce County (FeatureServer) layers do, plus zoning
+// district layers (hub-item resolution included), the statewide zoning atlas, and the
+// pre-built Pierce assessor extract (manifest + shards) served next to the page.
 import { makeProjector, circleBBox } from '../../../js/geometry.js';
 
 export const ALLENMORE = { lat: 47.2418, lon: -122.4718 };
@@ -8,6 +10,12 @@ export const ALLENMORE = { lat: 47.2418, lon: -122.4718 };
 export const TACOMA_URL = 'https://esgis.tacoma.gov/arcgis/rest/services/Ref/ITD_Basemap/MapServer/2';
 export const PIERCE_URL = 'https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Tax_Parcels/FeatureServer/0';
 export const WA_URL = 'https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Current_Parcels/FeatureServer/0';
+export const WAZA_URL = 'https://services6.arcgis.com/tboeqGwETr5ppr5Q/arcgis/rest/services/WAZA_Prototype_Layers/FeatureServer/0';
+// Hub items resolved at run time by the app -> mocked hosted layers
+export const TACOMA_ZONING_ITEM = 'e71809b0bb4e4365a478a46117583daf';
+export const PIERCE_ZONING_ITEM = '068b1c905eb1465ab61812e9a8d1032e';
+export const TACOMA_ZONING_URL = 'https://services.arcgis.com/mockTacoma/arcgis/rest/services/Zoning_Districts_2025/FeatureServer/0';
+export const PIERCE_ZONING_URL = 'https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Zoning_and_Land_Use_Designations/FeatureServer/0';
 
 const OWNERS = [
   'Healthcare Realty', 'Ventas REIT', 'NATIONWIDE HEALTH PROPERTIES INC', 'Donald Hearon DDS', 'VFW', 'Reeder Management Inc',
@@ -16,6 +24,8 @@ const OWNERS = [
   'Key Bank', 'GLORIA DEI LUTHERAN CHURCH', 'DUGAN JON', 'Home Partners of America', 'Everlast Family & Cosmetic Dentistry',
 ];
 const USES = [['1101', 'SINGLE FAMILY DWELLING'], ['6500', 'MEDICAL OFFICE'], ['4600', 'PARKING'], ['5300', 'RETAIL'], ['1300', 'MULTI-FAMILY'], ['9100', 'VACANT LAND'], ['7200', 'CHURCH']];
+
+const bboxOf = (ring) => [Math.min(...ring.map((p) => p[0])), Math.min(...ring.map((p) => p[1])), Math.max(...ring.map((p) => p[0])), Math.max(...ring.map((p) => p[1]))];
 
 /** Builds a grid of rectangular parcels (cols x rows) of w x h metres around the centre. */
 export function makeParcels({ center = ALLENMORE, cols = 12, rows = 10, w = 70, h = 55, gap = 6 } = {}) {
@@ -49,13 +59,62 @@ export function makeParcels({ center = ALLENMORE, cols = 12, rows = 10, w = 70, 
         land,
         impr,
         taxable: owner === 'VFW' || /CHURCH/i.test(owner) ? 0 : land + impr,
+        // the weekly assessor extract covers two parcels in three (deed grantee = legal owner)
+        inExtract: oid % 3 !== 0,
+        centre: containsCenter,
+        x0, y0,
         ring,
-        bbox: [Math.min(...ring.map((p) => p[0])), Math.min(...ring.map((p) => p[1])), Math.max(...ring.map((p) => p[0])), Math.max(...ring.map((p) => p[1]))],
+        bbox: bboxOf(ring),
       });
       oid += 1;
     }
   }
   return features;
+}
+
+/** Zoning districts: a hospital/medical strip through the centre, residential north and south. */
+export function makeZones({ center = ALLENMORE } = {}) {
+  const proj = makeProjector([center.lon, center.lat]);
+  const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]].map((xy) => proj.toLngLat(xy));
+  const zones = [
+    { oid: 1, code: 'HMX', desc: 'Hospital Medical Mixed-Use District', ring: rect(-1200, -120, 1200, 120) },
+    { oid: 2, code: 'R3', desc: 'Two-Family Dwelling District', ring: rect(-1200, 120, 1200, 1200) },
+    { oid: 3, code: 'R2', desc: 'One-Family Dwelling District', ring: rect(-1200, -1200, 1200, -120) },
+  ];
+  for (const z of zones) z.bbox = bboxOf(z.ring);
+  return zones;
+}
+
+/** Records of the mocked weekly Pierce assessor extract, keyed by parcel number. */
+export function makeExtract(parcels) {
+  const records = {};
+  for (const f of parcels) {
+    if (!f.inExtract) continue;
+    const i = f.oid - 1;
+    const invalid = f.oid % 4 === 0;
+    records[f.parcel] = {
+      situs_address: `${1900 + f.oid} S UNION AVE`,
+      use_code: f.code,
+      use_description: f.desc,
+      exemption: f.centre ? 'Non Profit Hospital' : undefined,
+      taxable_value: f.taxable,
+      land_value: f.land,
+      improvement_value: f.impr,
+      total_value: f.land + f.impr,
+      business_name: f.centre ? 'MULTICARE ALLENMORE HOSPITAL' : undefined,
+      land_acres: Number(f.acres.toFixed(4)),
+      legal_owner: f.centre ? 'MULTICARE HEALTH SYSTEM' : f.owner,
+      sale_date: `20${String(10 + (i % 15)).padStart(2, '0')}-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 27)).padStart(2, '0')}`,
+      sale_price: invalid ? 0 : f.land + f.impr - 50000,
+      sale_grantor: `${OWNERS[(i + 7) % OWNERS.length].toUpperCase()} (SELLER)`,
+      sale_deed_type: invalid ? 'Quit Claim Deed' : 'Statutory Warranty Deed',
+      sale_valid: invalid ? 0 : 1,
+      sale_exclude_reason: invalid ? 'Living Trust' : undefined,
+      sale_etn: String(202000000000 + f.oid),
+    };
+    for (const k of Object.keys(records[f.parcel])) if (records[f.parcel][k] === undefined) delete records[f.parcel][k];
+  }
+  return records;
 }
 
 function parseParams(request) {
@@ -80,9 +139,9 @@ function envelopeFilter(params) {
 
 // Esri expects clockwise outer rings
 const cw = (ring) => ring.slice().reverse();
+const F = (name, type, alias = name) => ({ name, type, alias });
 
 function tacomaLayerInfo() {
-  const F = (name, type, alias = name) => ({ name, type, alias });
   return {
     id: 2, name: 'Pierce County Tax Parcels (with ATS Info)', type: 'Feature Layer', geometryType: 'esriGeometryPolygon',
     displayField: 'TAXPAYERNAME', objectIdField: 'OBJECTID', maxRecordCount: 1000, supportedQueryFormats: 'JSON, geoJSON',
@@ -101,7 +160,6 @@ function tacomaLayerInfo() {
 }
 
 function pierceLayerInfo() {
-  const F = (name, type, alias = name) => ({ name, type, alias });
   return {
     id: 0, name: 'Tax_Parcels', type: 'Feature Layer', geometryType: 'esriGeometryPolygon', objectIdField: 'OBJECTID',
     displayField: 'Site_Address', maxRecordCount: 2000, supportedQueryFormats: 'JSON, geoJSON, PBF', capabilities: 'Query',
@@ -110,13 +168,12 @@ function pierceLayerInfo() {
       F('OBJECTID', 'esriFieldTypeOID'), F('TaxParcelNumber', 'esriFieldTypeString'), F('Site_Address', 'esriFieldTypeString'),
       F('Business_Name', 'esriFieldTypeString'), F('Land_Acres', 'esriFieldTypeDouble'), F('Land_Value', 'esriFieldTypeDouble'),
       F('Improvement_Value', 'esriFieldTypeDouble'), F('Taxable_Value', 'esriFieldTypeDouble'), F('Use_Code', 'esriFieldTypeString'),
-      F('Landuse_Description', 'esriFieldTypeString'), F('Shape__Area', 'esriFieldTypeDouble'),
+      F('Landuse_Description', 'esriFieldTypeString'), F('Exemption_Code', 'esriFieldTypeString'), F('Shape__Area', 'esriFieldTypeDouble'),
     ],
   };
 }
 
 function waLayerInfo() {
-  const F = (name, type, alias = name) => ({ name, type, alias });
   return {
     id: 0, name: 'Parcels_2026', type: 'Feature Layer', geometryType: 'esriGeometryPolygon', objectIdField: 'OBJECTID',
     maxRecordCount: 2000, supportedQueryFormats: 'JSON, geoJSON, PBF', capabilities: 'Query', advancedQueryCapabilities: { supportsPagination: true },
@@ -124,6 +181,14 @@ function waLayerInfo() {
       F('OBJECTID', 'esriFieldTypeOID'), F('COUNTY_NM', 'esriFieldTypeString'), F('PARCEL_ID_NR', 'esriFieldTypeString'), F('SITUS_ADDRESS', 'esriFieldTypeString'),
       F('SITUS_CITY_NM', 'esriFieldTypeString'), F('LANDUSE_CD', 'esriFieldTypeSmallInteger', 'DOR Land Use Code'), F('VALUE_LAND', 'esriFieldTypeDouble'), F('VALUE_BLDG', 'esriFieldTypeDouble'), F('DATA_LINK', 'esriFieldTypeString'),
     ],
+  };
+}
+
+function zoningLayerInfo(name, codeField, descField) {
+  return {
+    id: 0, name, type: 'Feature Layer', geometryType: 'esriGeometryPolygon', objectIdField: 'OBJECTID',
+    maxRecordCount: 2000, supportedQueryFormats: 'JSON, geoJSON, PBF', capabilities: 'Query', advancedQueryCapabilities: { supportsPagination: true },
+    fields: [F('OBJECTID', 'esriFieldTypeOID'), F(codeField, 'esriFieldTypeString'), ...(descField ? [F(descField, 'esriFieldTypeString')] : []), F('Shape__Area', 'esriFieldTypeDouble')],
   };
 }
 
@@ -154,10 +219,11 @@ function esriPage(features, params, propsOf, pageSize) {
 
 /**
  * Installs route handlers. options.fail = Set of layer URLs that should return HTTP 500.
+ * options.extract = false disables the mocked weekly assessor extract (404s).
  * Returns a log of requests per layer.
  */
-export async function installMockArcGIS(page, { parcels = makeParcels(), fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0 } = {}) {
-  const log = { tacoma: [], pierce: [], wa: [], tiles: 0, other: [], blocked: [] };
+export async function installMockArcGIS(page, { parcels = makeParcels(), zones = makeZones(), fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0, extract = true } = {}) {
+  const log = { tacoma: [], pierce: [], wa: [], tacomaZoning: [], pierceZoning: [], waza: [], items: [], extract: [], tiles: 0, other: [], blocked: [] };
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
   // Tests must never reach a real service. Any ArcGIS REST host that is not explicitly
@@ -167,15 +233,15 @@ export async function installMockArcGIS(page, { parcels = makeParcels(), fail = 
     return json(route, { error: { code: 503, message: 'unmocked service blocked by test fixture' } }, 503);
   });
 
-  const handler = (key, url, info, propsOf, esri = false, pageSize = 1000) => async (route, request) => {
+  const handler = (key, url, info, propsOf, { esri = false, pageSize = 1000, features = parcels } = {}) => async (route, request) => {
     const params = parseParams(request);
     log[key].push({ url: request.url(), method: request.method(), params: Object.fromEntries(params) });
     if (fail.has(url)) return json(route, { error: { code: 500, message: 'mock failure' } }, 500);
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     const path = new URL(request.url()).pathname;
     if (!path.endsWith('/query')) return json(route, info);
-    if (params.get('returnCountOnly') === 'true') return json(route, { count: parcels.filter(envelopeFilter(params)).length });
-    const filtered = parcels.filter(envelopeFilter(params));
+    const filtered = features.filter(envelopeFilter(params));
+    if (params.get('returnCountOnly') === 'true') return json(route, { count: filtered.length });
     if (params.get('returnIdsOnly') === 'true') return json(route, { objectIdFieldName: 'OBJECTID', objectIds: filtered.map((f) => f.oid) });
     const ids = params.get('objectIds');
     const subset = ids ? filtered.filter((f) => ids.split(',').map(Number).includes(f.oid)) : filtered;
@@ -188,17 +254,49 @@ export async function installMockArcGIS(page, { parcels = makeParcels(), fail = 
     OBJECTID: f.oid, TaxParcelNumber: f.parcel, TaxParcelType: 'Base', TAXPAYERNAME: f.owner, LandGrossAcres: Number(f.acres.toFixed(4)), Use_Code: f.code,
     LandValuePriorYear: f.land, ImprovementValuePriorYear: f.impr, TotalMarketValuePriorYear: f.land + f.impr, TaxableValuePriorYear: f.taxable,
     TotalMarketValueCurrentYear: f.land + f.impr, TaxableValueCurrentYear: f.taxable, LandValueCurrentYear: f.land, ImprovementValueCurrentYear: f.impr, CurrentUseCodeCurrentYear: f.code,
-  }), false, tacomaPageSize));
+  }), { pageSize: tacomaPageSize }));
 
   await page.route(`${PIERCE_URL}**`, handler('pierce', PIERCE_URL, pierceLayerInfo(), (f) => ({
-    OBJECTID: f.oid, TaxParcelNumber: f.parcel, Site_Address: `${1900 + f.oid} S UNION AVE`, Business_Name: pierceOwnerNames ? f.owner : (/(INC|LLC|REIT|BANK)/i.test(f.owner) ? f.owner : null),
+    OBJECTID: f.oid, TaxParcelNumber: f.parcel, Site_Address: `${1900 + f.oid} S UNION AVE`,
+    // Business_Name is the business on the parcel (occupant), never the taxpayer
+    Business_Name: pierceOwnerNames ? f.owner : (f.centre ? 'MULTICARE ALLENMORE HOSPITAL' : /(INC|LLC|REIT|BANK)/i.test(f.owner) ? f.owner : null),
     Land_Acres: Number(f.acres.toFixed(4)), Land_Value: f.land, Improvement_Value: f.impr, Taxable_Value: f.taxable, Use_Code: f.code, Landuse_Description: f.desc,
+    Exemption_Code: f.taxable === 0 ? 'EX' : null,
   })));
 
   await page.route(`${WA_URL}**`, handler('wa', WA_URL, waLayerInfo(), (f) => ({
     OBJECTID: f.oid, COUNTY_NM: 'Pierce', PARCEL_ID_NR: f.parcel, SITUS_ADDRESS: `${1900 + f.oid} S UNION AVE`, SITUS_CITY_NM: 'TACOMA', LANDUSE_CD: Number(f.code.slice(0, 2)),
     VALUE_LAND: f.land, VALUE_BLDG: f.impr, DATA_LINK: `https://atip.piercecountywa.gov/app/v2/propertyDetail/${f.parcel}/summary`,
   })));
+
+  // Zoning: hub items resolve to hosted layers; Tacoma has districts, the county layer and the
+  // statewide atlas answer with no polygons here (incorporated area).
+  await page.route(/https:\/\/www\.arcgis\.com\/sharing\/rest\/content\/items\/([0-9a-f]+)/, (route, request) => {
+    const id = request.url().match(/items\/([0-9a-f]+)/)[1];
+    log.items.push(id);
+    const url = { [TACOMA_ZONING_ITEM]: TACOMA_ZONING_URL.replace(/\/0$/, ''), [PIERCE_ZONING_ITEM]: PIERCE_ZONING_URL.replace(/\/0$/, '') }[id];
+    if (!url) return json(route, { error: { code: 400, message: 'Item does not exist or is inaccessible.' } }, 400);
+    return json(route, { id, type: 'Feature Service', title: 'mock zoning', url });
+  });
+  await page.route(`${TACOMA_ZONING_URL}**`, handler('tacomaZoning', TACOMA_ZONING_URL, zoningLayerInfo('Zoning Districts 2025', 'Zoning', 'Zoning_Desc'), (z) => ({ OBJECTID: z.oid, Zoning: z.code, Zoning_Desc: z.desc }), { features: zones }));
+  await page.route(`${PIERCE_ZONING_URL}**`, handler('pierceZoning', PIERCE_ZONING_URL, zoningLayerInfo('Zoning and Land Use Designations', 'zon_cur_cd', 'Lu_des'), (z) => ({ OBJECTID: z.oid, zon_cur_cd: z.code, Lu_des: z.desc }), { features: [] }));
+  await page.route(`${WAZA_URL}**`, handler('waza', WAZA_URL, { ...zoningLayerInfo('WAZA_Prototype_Layers', 'ZoneID', 'ZoneName'), fields: [F('OBJECTID', 'esriFieldTypeOID'), F('Jurisdiction', 'esriFieldTypeString'), F('ZoneID', 'esriFieldTypeString'), F('ZoneName', 'esriFieldTypeString')] }, (z) => ({ OBJECTID: z.oid, Jurisdiction: 'Tacoma', ZoneID: z.code, ZoneName: z.desc }), { features: [] }));
+
+  // Weekly Pierce assessor extract published next to the page
+  const extractRecords = makeExtract(parcels);
+  await page.route(/\/data\/assessor\/pierce\/(manifest\.json|shards\/[0-9A-Z]+\.json)$/, (route, request) => {
+    const url = request.url();
+    log.extract.push(url);
+    if (!extract) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not built' });
+    if (url.endsWith('manifest.json')) {
+      return json(route, { generated: '2026-09-21T13:20:00.000Z', asOf: '2026-09-18T07:00:00.000Z', prefixLength: 4, shards: ['2000'], records: Object.keys(extractRecords).length, fields: { legal_owner: 'sale.txt Grantee on the most recent recorded deed' }, notes: 'mock extract' });
+    }
+    const prefix = url.match(/shards\/([0-9A-Z]+)\.json$/)[1];
+    const shard = {};
+    for (const [k, v] of Object.entries(extractRecords)) if (k.startsWith(prefix)) shard[k] = v;
+    if (!Object.keys(shard).length) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'no shard' });
+    return json(route, shard);
+  });
 
   // Basemap tiles and geocoders are not reachable in CI; answer with a blank tile / empty result.
   const blankPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');

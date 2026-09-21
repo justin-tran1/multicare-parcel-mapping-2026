@@ -10,6 +10,15 @@ function expectedHits(radiusM) {
 }
 
 const hashFor = (r = 250, u = 'yd') => `/#lat=${ALLENMORE.lat}&lon=${ALLENMORE.lon}&r=${r}&u=${u}`;
+const currency = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+/** Index of a column in the rendered table by header label. */
+async function colIndex(page, label) {
+  const headers = await page.locator('table.parcels thead th').allTextContents();
+  const i = headers.findIndex((h) => h.replace(/[▲▼]/g, '').trim() === label);
+  expect(i, `column "${label}" in ${headers.join(' | ')}`).toBeGreaterThanOrEqual(0);
+  return i;
+}
 
 test.describe('radius study', () => {
   test('numbers and tabulates every parcel touching a 250 yard ring', async ({ page }) => {
@@ -27,17 +36,33 @@ test.describe('radius study', () => {
     await expect(first).toHaveClass(/mc-owned/);
     await expect(first).toContainText('MULTICARE HEALTH SYSTEMS');
     // Use description came from the Pierce County enrichment join (the Tacoma layer only has a code)
-    const centre = parcels.find((p) => p.owner === 'MULTICARE HEALTH SYSTEMS');
+    const centre = parcels.find((p) => p.centre);
     await expect(first).toContainText(centre.desc);
-    await expect(first.locator('td').nth(2)).toHaveText(centre.taxable.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }));
+    const valueCol = await colIndex(page, 'Taxable Value');
+    await expect(first.locator('td').nth(valueCol)).toHaveText(currency(centre.taxable));
+    // Legal owner, zoning and last sale come from the weekly extract and the zoning-district layer
+    await expect(first.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toContainText('MULTICARE HEALTH SYSTEM');
+    await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
+    await expect(first.locator('td').nth(await colIndex(page, 'Last Sale'))).toContainText(/\d{2}\/\d{2}\/20\d{2}/);
+    await expect(first.locator('td').nth(await colIndex(page, 'Sale Price'))).toContainText('$');
+    // a parcel outside the extract shows n/a for the deed fields but still has zoning
+    const uncovered = expected.find((p) => !p.inExtract);
+    const row = page.locator(`table.parcels tbody tr[data-key$=":${uncovered.parcel}:${uncovered.oid}"]`);
+    await expect(row.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toHaveText('n/a');
+    await expect(row.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText(/^(HMX|R2|R3)$/);
     await expect(page.locator('#results-meta')).toContainText('MultiCare-affiliated');
     // The taxable-value column shows currency and the total row is present
     await expect(page.locator('table.parcels tfoot td').nth(0)).toHaveText(String(expected.length));
-    await expect(page.locator('table.parcels tfoot td').nth(2)).toContainText('$');
-    // Data source panel lists both Pierce sources online with field mapping
+    await expect(page.locator('table.parcels tfoot td').nth(valueCol)).toContainText('$');
+    // Data source panel lists the Pierce sources online with field mapping, the zoning layer and the extract
     await expect(page.locator('#sources .source').first()).toContainText('online');
     await expect(page.locator('#sources')).toContainText('TAXPAYERNAME');
     await expect(page.locator('#sources')).toContainText('Landuse_Description');
+    await expect(page.locator('#sources')).toContainText('zoning districts');
+    await expect(page.locator('#sources')).toContainText('Zoning Districts 2025');
+    await expect(page.locator('#sources')).toContainText('assessor extract');
+    await expect(page.locator('#sources')).toContainText('parcels matched');
+    await expect(page.locator('#sources')).not.toContainText('unavailable');
     // Legend counts
     await expect(page.locator('#legend')).toContainText(`Parcel in study (${expected.length})`);
     await expect(page.locator('#legend')).toContainText('MultiCare owned (');
@@ -47,6 +72,11 @@ test.describe('radius study', () => {
     expect(errors, `page errors: ${errors.join('\n')}`).toEqual([]);
     expect(log.tacoma.some((r) => r.url.includes('/query'))).toBe(true);
     expect(log.pierce.some((r) => r.params.returnGeometry === 'false')).toBe(true);
+    expect(log.items).toContain('e71809b0bb4e4365a478a46117583daf');
+    expect(log.extract.some((u) => u.endsWith('manifest.json'))).toBe(true);
+    expect(log.extract.some((u) => u.endsWith('shards/2000.json'))).toBe(true);
+    // city layers elsewhere in the county are skipped by extent, never requested
+    expect(log.blocked.filter((u) => /puyallup|lakewood|auburn/i.test(u))).toEqual([]);
   });
 
   test('radius and unit changes re-run the study and unit conversion keeps the ring size', async ({ page }) => {
@@ -113,16 +143,32 @@ test.describe('radius study', () => {
     await expect(page.locator('#table-wrap .empty')).toBeVisible();
   });
 
-  test('falls back to the county open-data layer when the city layer is down, then to the State layer', async ({ page }) => {
+  test('falls back to the county open-data layer when the city layer is down; the deed grantee stands in for withheld taxpayer names', async ({ page }) => {
     await installMockArcGIS(page, { parcels, fail: new Set([TACOMA_URL]) });
     await page.goto(hashFor());
     const n = expectedHits(toMeters(250, 'yd')).length;
     await expect(page.locator('table.parcels tbody tr')).toHaveCount(n, { timeout: 20000 });
     await expect(page.locator('#sources')).toContainText('unavailable');
     await expect(page.locator('#sources')).toContainText('Tax Parcels (Pierce County Open GeoSpatial Data Portal)');
-    // Individuals' names are not published on the county layer, business names are
-    await expect(page.locator('table.parcels tbody')).toContainText('not published');
-    await expect(page.locator('table.parcels tbody')).toContainText('Ventas REIT');
+    // The county layer withholds taxpayer names: parcels in the weekly extract show the legal
+    // owner (deed grantee) marked §, parcels outside it stay "not published".
+    const ownerCol = await colIndex(page, 'True Owner');
+    const covered = expectedHits(toMeters(250, 'yd')).find((p) => p.inExtract && p.owner === 'Ventas REIT');
+    const uncovered = expectedHits(toMeters(250, 'yd')).find((p) => !p.inExtract);
+    expect(covered && uncovered).toBeTruthy();
+    const coveredRow = page.locator(`table.parcels tbody tr[data-key$=":${covered.parcel}:${covered.oid}"]`);
+    await expect(coveredRow.locator('td').nth(ownerCol)).toContainText('Ventas REIT');
+    await expect(coveredRow.locator('td').nth(ownerCol).locator('.sup')).toHaveText('§');
+    const uncoveredRow = page.locator(`table.parcels tbody tr[data-key$=":${uncovered.parcel}:${uncovered.oid}"]`);
+    await expect(uncoveredRow.locator('td').nth(ownerCol)).toHaveText('not published');
+    // The MultiCare parcel is recognised through the deed even without a taxpayer name
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first).toHaveClass(/mc-owned/);
+    await expect(first).toContainText('MULTICARE HEALTH SYSTEM');
+    expect(await page.evaluate(() => window.__parcelApp.state.study.records[0].multicare.matchedOn)).toBe('legal owner (deed)');
+    // The business name on the parcel marks it occupied but is never shown as the owner
+    expect(await page.evaluate(() => window.__parcelApp.state.study.records[0].occupiedBy)).toContain('MULTICARE ALLENMORE HOSPITAL');
+    await expect(first.locator('td').nth(ownerCol)).not.toContainText('ALLENMORE HOSPITAL');
   });
 
   test('statewide layer serves parcels when no county source responds', async ({ page }) => {
@@ -131,14 +177,30 @@ test.describe('radius study', () => {
     const n = expectedHits(toMeters(250, 'yd')).length;
     await expect(page.locator('table.parcels tbody tr')).toHaveCount(n, { timeout: 20000 });
     await expect(page.locator('#sources')).toContainText('Current Parcels (Parcels_2026)');
-    await expect(page.locator('#sources')).toContainText('does not publish owner names');
+    await expect(page.locator('#sources')).toContainText('does not publish taxpayer names');
     // Values fall back to market land + building and are flagged with *
-    await expect(page.locator('table.parcels tbody tr').first().locator('td').nth(2)).toContainText('*');
+    const valueCol = await colIndex(page, 'Taxable Value');
+    await expect(page.locator('table.parcels tbody tr').first().locator('td').nth(valueCol)).toContainText('*');
     // DOR land use code decoded to text
     await expect(page.locator('table.parcels tbody')).toContainText('Professional services');
+    // Zoning districts of the county still apply to State parcels
+    await expect(page.locator('table.parcels tbody tr').first().locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
   });
 
-  test('CSV export includes every listed parcel with owner, value, acres and use', async ({ page }) => {
+  test('a missing weekly extract is reported and the study still completes', async ({ page }) => {
+    await installMockArcGIS(page, { parcels, extract: false });
+    await page.goto(hashFor());
+    const n = expectedHits(toMeters(250, 'yd')).length;
+    await expect(page.locator('table.parcels tbody tr')).toHaveCount(n, { timeout: 20000 });
+    await expect(page.locator('#sources')).toContainText('assessor extract');
+    await expect(page.locator('#sources')).toContainText('weekly data workflow');
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first).toContainText('MULTICARE HEALTH SYSTEMS');
+    await expect(first.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toHaveText('n/a');
+    await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
+  });
+
+  test('CSV export includes every listed parcel with owner, legal owner, value, acres, use, zoning and sale', async ({ page }) => {
     await installMockArcGIS(page, { parcels });
     await page.goto(hashFor());
     const n = expectedHits(toMeters(250, 'yd')).length;
@@ -147,9 +209,31 @@ test.describe('radius study', () => {
     const text = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString('utf8'));
     const lines = text.trim().split(/\r?\n/);
     expect(lines.length).toBe(n + 1);
-    expect(lines[0]).toContain('ID,Owner,Owner note,Parcel #,Site address,City,County,Value,Value type');
+    expect(lines[0]).toContain('ID,Owner,Owner source,Owner note,Legal owner (deed),Legal owner note,Business on parcel,Parcel #,Site address,City,County,Value,Value type');
+    expect(lines[0]).toContain('Zoning,Zoning description,Zoning jurisdiction,Zoning source,Last sale date,Last sale price,Grantor (seller),Deed type,Sale valid (assessor)');
     expect(lines[1]).toContain('MULTICARE HEALTH SYSTEMS');
+    expect(lines[1]).toContain('MULTICARE HEALTH SYSTEM'); // legal owner from the deed
     expect(lines[1]).toContain('MultiCare owned');
+    expect(lines[1]).toContain('HMX');
+    expect(lines[1]).toContain('Statutory Warranty Deed');
+  });
+
+  test('optional columns toggle and the print layout keeps ID, owner, value, acres, use and zoning', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto(hashFor());
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('table.parcels thead')).toContainText('Sale Price');
+    await page.uncheck('#col-sale');
+    await expect(page.locator('table.parcels thead')).not.toContainText('Sale Price');
+    await page.uncheck('#col-legal');
+    await expect(page.locator('table.parcels thead')).not.toContainText('Legal Owner');
+    await page.check('#col-parcel');
+    await expect(page.locator('table.parcels thead')).toContainText('Parcel #');
+    // reload keeps the choice
+    await page.reload();
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('table.parcels thead')).not.toContainText('Sale Price');
+    await expect(page.locator('table.parcels thead')).toContainText('Parcel #');
   });
 
   test('cancelling an in-flight study does not demote the primary owner-bearing layer', async ({ page }) => {
@@ -186,7 +270,7 @@ test.describe('radius study', () => {
     expect(await page.evaluate(() => window.__parcelApp.state.ring)).toMatchObject({ radius: 0.5, unit: 'mi' });
   });
 
-  test('parcels in view load at zoom 15+ and popups show assessor detail', async ({ page }) => {
+  test('parcels in view load at zoom 15+ and popups show assessor detail incl. zoning and last sale', async ({ page }) => {
     await installMockArcGIS(page, { parcels });
     await page.goto('/');
     await page.evaluate(({ lat, lon }) => window.__parcelApp.state.map.setView([lat, lon], 17), ALLENMORE);
@@ -196,9 +280,17 @@ test.describe('radius study', () => {
     // click the centre of the map -> popup for the MultiCare parcel
     const box = await page.locator('#map').boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await expect(page.locator('.leaflet-popup .popup')).toBeVisible();
-    await expect(page.locator('.leaflet-popup .popup')).toContainText('MULTICARE HEALTH SYSTEMS');
-    await expect(page.locator('.leaflet-popup .popup')).toContainText('Taxable value');
+    const popup = page.locator('.leaflet-popup .popup');
+    await expect(popup).toBeVisible();
+    await expect(popup).toContainText('MULTICARE HEALTH SYSTEMS');
+    await expect(popup).toContainText('Taxable value');
+    await expect(popup).toContainText('Legal owner (deed)');
+    await expect(popup).toContainText('HMX');
+    await expect(popup).toContainText('Hospital Medical Mixed-Use District');
+    await expect(popup).toContainText('Last sale');
+    await expect(popup).toContainText('Statutory Warranty Deed');
+    await expect(popup).toContainText('Business on parcel');
+    await expect(popup).toContainText('Non Profit Hospital');
     await expect(page.locator('.leaflet-popup .popup a')).toHaveAttribute('href', /atip\.piercecountywa\.gov/);
   });
 });

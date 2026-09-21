@@ -31,14 +31,15 @@ const ROWS_PER_COLUMN = 52;
 /**
  * Clones the results table into one or more compact side-by-side column blocks so that
  * long parcel lists fit the exhibit page (the reference exhibit lists ~60 parcels in one
- * narrow column). Only the core exhibit columns are kept: ID, owner, value, acres, use.
+ * narrow column). Only the core exhibit columns are kept: ID, owner, value, acres, use,
+ * zoning.
  */
 function buildPrintTable(table) {
   if (!table) return null;
   const rows = [...table.querySelectorAll('tbody tr')];
   if (!rows.length) return null;
   const headers = [...table.querySelectorAll('thead th')];
-  const keep = headers.map((th) => ['id', 'owner', 'value', 'acres', 'use'].includes(th.dataset.key));
+  const keep = headers.map((th) => ['id', 'owner', 'value', 'acres', 'use', 'zoning'].includes(th.dataset.key));
   const cols = Math.max(1, Math.ceil(rows.length / ROWS_PER_COLUMN));
   const perCol = Math.ceil(rows.length / cols);
   const wrap = document.createElement('div');

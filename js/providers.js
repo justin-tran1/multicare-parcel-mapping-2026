@@ -10,6 +10,19 @@
 // derives attributes from sums or differences of fields. `ownerCompose` builds an owner
 // name from split organisation / last / first fields. `situsCompose` joins address parts.
 //
+// Further source options:
+//   joinBy: 'ids'   -> attribute table queried by parcel-id list (WHERE <id> IN (...)) instead of
+//                      by envelope; `joinField` names the id column when it cannot be inferred
+//   static: {...}   -> pre-built extract published with the site (manifest + JSON shards keyed
+//                      by normalized parcel number), see scripts/build-pierce-assessor.mjs
+//   item: {id,layer}-> ArcGIS Online / Hub item whose service URL is resolved at runtime
+//   notesFor: {...} -> caveat text attached to an attribute supplied by the source
+//   idCompose: [..] -> parcel number stored in parts (e.g. Major + Minor)
+// `zoning` on a provider lists zoning-district polygon layers in precedence order (city source
+// of record, then county, then the statewide atlas); parcels take the zoning of the polygon
+// containing their label point. `extent` is an approximate lon/lat box used to skip a city
+// layer for studies elsewhere; `jurisdictionField` reads the jurisdiction per polygon.
+//
 // `confidence` records how the endpoint was verified:
 //   confirmed -> layer URL and field names observed live (scripts/probe-providers.mjs, run on
 //                GitHub's runners on 2026-09-18) or seen verbatim in agency documentation
@@ -57,12 +70,287 @@ const STATEWIDE_ENRICH = {
   notes: 'Supplies market values, DOR land use and the assessor link where the county layer lacks them.',
 };
 
+// ---------------------------------------------------------------------------
+// Zoning-district layers
+// ---------------------------------------------------------------------------
+
+/** Statewide fallback: the Department of Commerce zoning atlas (every city and county). */
+export const WAZA_ZONING = {
+  id: 'waza-zones',
+  confidence: 'confirmed',
+  name: 'Washington Zoning Atlas, zoning districts (all jurisdictions)',
+  publisher: 'Washington State Department of Commerce / National Zoning Atlas',
+  url: 'https://services6.arcgis.com/tboeqGwETr5ppr5Q/arcgis/rest/services/WAZA_Prototype_Layers/FeatureServer/0',
+  fields: { zoning: ['ZoneID'], zoning_description: ['ZoneName'] },
+  jurisdictionField: 'Jurisdiction',
+  notes: 'Normalized statewide atlas of city and county zoning (2024–2025 vintage) used where the jurisdiction publishes no zoning service; codes can lag recent municipal code amendments.',
+};
+
+const AUBURN_ZONING = {
+  id: 'auburn-zoning',
+  confidence: 'confirmed',
+  name: 'Zoning (City of Auburn Public map service)',
+  publisher: 'City of Auburn GIS',
+  url: 'https://gis.auburnwa.gov/mapping/rest/services/Public/Public/MapServer/6',
+  fields: { zoning: ['ZONINGNAME'] },
+  jurisdiction: 'City of Auburn',
+  extent: [-122.34, 47.23, -122.15, 47.37],
+  notes: 'ZONINGNAME combines code and label, e.g. "C1 (Light Commercial)".',
+};
+
+const PIERCE_ZONING = [
+  {
+    id: 'tacoma-zoning-2025',
+    confidence: 'likely',
+    name: 'Zoning Districts 2025 (City of Tacoma Open Data)',
+    publisher: 'City of Tacoma Planning & Development Services',
+    item: { id: 'e71809b0bb4e4365a478a46117583daf', layer: 0 },
+    fields: { zoning: ['Zoning', 'ZONING', 'ZONE', 'Zone_Code', 'ZONECODE'] },
+    jurisdiction: 'City of Tacoma',
+    extent: [-122.62, 47.13, -122.3, 47.34],
+    notes: 'Hub item "Zoning Districts 2025 (Tacoma)"; the hosted layer URL is resolved from the item at run time.',
+  },
+  {
+    id: 'puyallup-zoning',
+    confidence: 'likely',
+    name: 'Zoning (City of Puyallup ZoningReview map service)',
+    publisher: 'City of Puyallup GIS',
+    url: 'https://gis.puyallupwa.gov/arcgis/rest/services/PuyViewPlanning/ZoningReviewMService/MapServer/1',
+    fields: {},
+    jurisdiction: 'City of Puyallup',
+    extent: [-122.38, 47.13, -122.22, 47.23],
+    notes: 'Field names resolved from the live schema.',
+  },
+  {
+    id: 'lakewood-zoning',
+    confidence: 'likely',
+    name: 'Lakewood Zoning (City of Lakewood feature service)',
+    publisher: 'City of Lakewood GIS',
+    url: 'https://egis.lakewood.org/server/rest/services/PL/Lakewood_Zoning_Feature_Service/FeatureServer/0',
+    fields: {},
+    jurisdiction: 'City of Lakewood',
+    extent: [-122.63, 47.1, -122.45, 47.22],
+    notes: 'Lakewood Municipal Code Title 17 zoning; field names resolved from the live schema.',
+  },
+  {
+    id: 'fife-zoning',
+    confidence: 'likely',
+    name: 'City of Fife Zoning View (Fife Open Data)',
+    publisher: 'City of Fife GIS',
+    item: { id: 'cea255ec7ebf4cfd88434836fa7874f8', layer: 0 },
+    fields: {},
+    jurisdiction: 'City of Fife',
+    extent: [-122.42, 47.2, -122.28, 47.28],
+    notes: 'Official zoning map dated June 2025; layer URL resolved from the hub item.',
+  },
+  AUBURN_ZONING,
+  {
+    id: 'pierce-county-zoning',
+    confidence: 'likely',
+    name: 'Zoning and Land Use Designations, unincorporated Pierce County',
+    publisher: 'Pierce County Planning & Public Works',
+    item: { id: '068b1c905eb1465ab61812e9a8d1032e', layer: 0 },
+    fields: { zoning: ['ZON_CUR_CD', 'zon_cur_cd'], zoning_description: ['ZON_CUR_NA', 'zon_cur_na'] },
+    jurisdiction: 'Pierce County (unincorporated)',
+    notes: 'Adopted zoning for unincorporated Pierce County only (ZON_CUR_CD code, ZON_CUR_NA name); city zoning is not included.',
+  },
+  WAZA_ZONING,
+];
+
+const KING_ZONING = [
+  {
+    id: 'seattle-zoning-detail',
+    confidence: 'confirmed',
+    name: 'Current Land Use Zoning Detail (City of Seattle)',
+    publisher: 'City of Seattle, Office of Planning & Community Development',
+    url: 'https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Current_Land_Use_Zoning_Detail_2/FeatureServer/0',
+    fields: { zoning: ['ZONING', 'ZONELUT'], zoning_description: ['ZONING_DESC', 'ZONELUT_DESC'] },
+    jurisdiction: 'City of Seattle',
+    extent: [-122.46, 47.47, -122.2, 47.75],
+    notes: 'Seattle zoning detail (PDDL licence).',
+  },
+  {
+    id: 'bellevue-zoning',
+    confidence: 'likely',
+    name: 'Zoning (City of Bellevue)',
+    publisher: 'City of Bellevue GIS',
+    url: 'https://services1.arcgis.com/EYzEZbDhXZjURPbP/arcgis/rest/services/Zoning/FeatureServer/7',
+    fields: { zoning: ['Zoning'], zoning_description: ['ZoningDescription'] },
+    jurisdiction: 'City of Bellevue',
+    extent: [-122.25, 47.52, -122.06, 47.69],
+  },
+  {
+    id: 'mercer-island-zoning',
+    confidence: 'likely',
+    name: 'Zoning (City of Mercer Island planning layers)',
+    publisher: 'City of Mercer Island',
+    url: 'https://services3.arcgis.com/bJ3kuL5CJAvqKrUn/arcgis/rest/services/Mercer_Island_Planning_Layers/FeatureServer/2',
+    fields: { zoning: ['ZONING'], zoning_description: ['ZoningDescription'] },
+    jurisdiction: 'City of Mercer Island',
+    extent: [-122.27, 47.51, -122.19, 47.62],
+  },
+  {
+    id: 'kent-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning Districts (City of Kent)',
+    publisher: 'City of Kent GIS',
+    url: 'https://geoservices.kentwa.gov/public/rest/services/PUBLIC_PLANNING_ZoningDistricts/MapServer/0',
+    fields: { zoning: ['Short_Name'], zoning_description: ['Long_Name'] },
+    jurisdiction: 'City of Kent',
+    extent: [-122.35, 47.32, -122.1, 47.46],
+  },
+  {
+    id: 'federal-way-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning (City of Federal Way)',
+    publisher: 'City of Federal Way GIS',
+    url: 'https://geoportal.cityoffederalway.com/res/rest/services/FW_Land/zoning/MapServer/0',
+    fields: { zoning: ['ZONING'] },
+    jurisdiction: 'City of Federal Way',
+    extent: [-122.42, 47.24, -122.23, 47.37],
+  },
+  AUBURN_ZONING,
+  {
+    id: 'king-county-zoning',
+    confidence: 'likely',
+    name: 'King County zoning, unincorporated (KingCo_Zoning)',
+    publisher: 'King County GIS Center / Permitting',
+    url: 'https://gismaps.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/1',
+    fields: { zoning: ['CURRZONE'], zoning_description: false },
+    jurisdiction: 'King County (unincorporated)',
+    notes: 'CURRZONE is the current zoning of unincorporated King County; city zoning comes from city layers or the statewide atlas.',
+  },
+  {
+    id: 'king-county-zoning-opendata',
+    confidence: 'likely',
+    name: 'King County zoning, unincorporated (open-data KingCo_Zoning)',
+    publisher: 'King County GIS Center',
+    url: 'https://gisdata.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/0',
+    fields: { zoning: ['CURRZONE'], zoning_description: false },
+    jurisdiction: 'King County (unincorporated)',
+    notes: 'Alternate host and layer index for the same unincorporated zoning data.',
+  },
+  WAZA_ZONING,
+];
+
+const SNOHOMISH_ZONING = [
+  {
+    id: 'everett-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning Districts (City of Everett Planning)',
+    publisher: 'City of Everett GIS',
+    url: 'https://gismaps.everettwa.gov/manarcgis/rest/services/Planning/Planning/MapServer/49',
+    fields: { zoning: ['Zone'], zoning_description: ['Zone_Desc'] },
+    jurisdiction: 'City of Everett',
+    extent: [-122.32, 47.86, -122.11, 48.06],
+  },
+  {
+    id: 'snohomish-county-zoning',
+    confidence: 'likely',
+    name: 'Zoning polygons, unincorporated Snohomish County (PLANNING zoning_poly)',
+    publisher: 'Snohomish County Planning & Development Services',
+    item: { id: '7a90035a35f6424785f6e74ed3e49941', layer: 0 },
+    fields: {},
+    jurisdiction: 'Snohomish County (unincorporated)',
+    notes: 'Field names resolved from the live schema.',
+  },
+  WAZA_ZONING,
+];
+
+const SPOKANE_ZONING = [
+  {
+    id: 'spokane-city-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning (City of Spokane), SCOUT layers menu',
+    publisher: 'City of Spokane / Spokane County GIS (SCOUT)',
+    url: 'https://gismo.spokanecounty.org/arcgis/rest/services/SCOUT/LayersMenu/MapServer/33',
+    fields: { zoning: ['ZoneCode'], zoning_description: ['ZoneLabel'] },
+    jurisdiction: 'City of Spokane',
+    extent: [-117.56, 47.57, -117.27, 47.77],
+  },
+  {
+    id: 'spokane-valley-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning (City of Spokane Valley)',
+    publisher: 'City of Spokane Valley GIS',
+    url: 'https://gis.spokanevalley.org/arcgis/rest/services/Layers/ValleyZoning/FeatureServer/1',
+    fields: { zoning: ['Zoning'] },
+    jurisdiction: 'City of Spokane Valley',
+    extent: [-117.33, 47.59, -117.1, 47.73],
+  },
+  {
+    id: 'spokane-county-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning District, unincorporated Spokane County (OpenData/Planning)',
+    publisher: 'Spokane County Building & Planning',
+    url: 'https://gismo.spokanecounty.org/arcgis/rest/services/OpenData/Planning/MapServer/0',
+    fields: { zoning: ['ZONECLASS'] },
+    jurisdiction: 'Spokane County (unincorporated)',
+  },
+  WAZA_ZONING,
+];
+
+const THURSTON_ZONING = [
+  {
+    id: 'lacey-area-zoning',
+    confidence: 'confirmed',
+    name: 'Lacey Area Zoning (Thurston County, UGAs, Lacey, Rainier, Bucoda, Yelm)',
+    publisher: 'City of Lacey GIS / Thurston County',
+    url: 'https://laceyportal.ci.lacey.wa.us/server/rest/services/base_data/Lacey_Area_Zoning_0822/MapServer/3',
+    fields: {},
+    notes: 'August 2022 compilation; Olympia and Tumwater are not included (the statewide atlas covers them).',
+  },
+  WAZA_ZONING,
+];
+
+const CLARK_ZONING = [
+  {
+    id: 'clark-zoning',
+    confidence: 'confirmed',
+    name: 'Zoning, all Clark County jurisdictions (ClarkView_Public)',
+    publisher: 'Clark County GIS',
+    url: 'https://gis.clark.wa.gov/arcgisfed/rest/services/ClarkView_Public/Zoning/MapServer/0',
+    fields: { zoning: ['ZONING'], zoning_description: ['GRPDESC'] },
+    notes: 'Combines the zoning layers of every city and unincorporated Clark County.',
+  },
+  WAZA_ZONING,
+];
+
+const KITSAP_ZONING = [
+  {
+    id: 'bremerton-zoning',
+    confidence: 'likely',
+    name: 'Bremerton Zoning (City of Bremerton)',
+    publisher: 'City of Bremerton GIS',
+    url: 'https://arcgis.bremertonwa.gov/arcgis/rest/services/Bremerton_Zoning/MapServer/0',
+    fields: { zoning: ['MAX_ZONE'] },
+    jurisdiction: 'City of Bremerton',
+    extent: [-122.75, 47.5, -122.55, 47.65],
+  },
+  WAZA_ZONING,
+];
+
+const YAKIMA_ZONING = [
+  {
+    id: 'yakima-county-zoning',
+    confidence: 'confirmed',
+    name: 'CountyZoning, unincorporated Yakima County',
+    publisher: 'Yakima County Planning',
+    url: 'https://maps.yakimacounty.us/server/rest/services/Planning/CountyZoning/MapServer/0',
+    fields: {},
+    jurisdiction: 'Yakima County (unincorporated)',
+    notes: 'Field names resolved from the live schema.',
+  },
+  WAZA_ZONING,
+];
+
 export const STATEWIDE = {
   key: 'wa',
   name: 'Washington State Current Parcels',
   counties: ['*'],
   useCodeScheme: 'dor',
   assessorLink: null,
+  zoning: [WAZA_ZONING],
   sources: [
     {
       id: 'wa-current-parcels',
@@ -100,11 +388,13 @@ export const STATEWIDE = {
 };
 
 // Pierce County assessor schema shared by the county open-data layer and its regional mirrors
-// (observed live). Business_Name carries the taxpayer name for business-owned parcels only.
+// (observed live). Taxpayer names are withheld from the county's public GIS data
+// (RCW 42.56.070(8)); Business_Name is the business operating on the parcel, not its owner.
 const PIERCE_COUNTY_FIELDS = {
   parcel_id: ['TaxParcelNumber'],
-  owner: ['Taxpayer_Name', 'Business_Name'],
+  owner: ['Taxpayer_Name', 'TaxpayerName'],
   owner_address: ['Delivery_Address'],
+  business_name: ['Business_Name'],
   situs_address: ['Site_Address'],
   taxable_value: ['Taxable_Value'],
   land_value: ['Land_Value'],
@@ -113,8 +403,24 @@ const PIERCE_COUNTY_FIELDS = {
   land_acres: ['Land_Acres'],
   use_code: ['Use_Code'],
   use_description: ['Landuse_Description'],
+  exemption: ['Exemption_Code'],
 };
 const PIERCE_COUNTY_COMPUTED = { total_value: { sum: ['Land_Value', 'Improvement_Value'], label: 'Land + improvement value' } };
+
+// Weekly Assessor-Treasurer bulk extract (tax_account, appraisal_account, sale tables) built by
+// scripts/build-pierce-assessor.mjs in the deployment workflow and published with the site.
+const PIERCE_ASSESSOR_EXTRACT = {
+  id: 'pierce-assessor-extract',
+  geometry: false,
+  enrich: true,
+  confidence: 'confirmed',
+  name: 'Assessor-Treasurer weekly data extract: deeds (legal owner, last sale), business name, exemption, values',
+  publisher: 'Pierce County Assessor-Treasurer Data Downloads, compiled weekly for this map',
+  url: 'https://www.piercecountywa.gov/736/Data-Downloads',
+  static: { manifest: 'data/assessor/pierce/manifest.json', shard: 'data/assessor/pierce/shards/{prefix}.json', prefixLength: 4 },
+  notesFor: { legal_owner: 'grantee on the most recent recorded deed in the Assessor-Treasurer sale file' },
+  notes: 'Last sale date, price, deed type, grantor and grantee for every parcel (full recorded history), business name, exemption type and current-year values. No public Pierce County bulk table carries taxpayer names.',
+};
 
 // City of Tacoma layer joined to Assessor-Treasurer data (documented; not reachable from
 // GitHub's runners when probed, so it is tried first and falls through quickly if blocked).
@@ -145,6 +451,7 @@ const KING_FIELDS = {
   land_sqft: ['LOTSQFT'],
   use_code: ['PREUSE_CODE', 'PRESENTUSE'],
   use_description: ['PREUSE_DESC'],
+  zoning: ['KCA_ZONING'],
 };
 const KING_COMPUTED = {
   taxable_value: { sum: ['TAX_LNDVAL', 'TAX_IMPR'], label: 'Taxable land + improvement value' },
@@ -202,6 +509,10 @@ const CLARK_FIELDS = {
   land_sqft: ['AssrSqFt', 'GISSqft'],
   use_code: ['PropertyUseClass', 'Pt1'],
   use_description: ['Pt1Desc'],
+  sale_date: ['SaleDate'],
+  sale_price: ['SaleAmount'],
+  zoning: ['Zone1', 'ZONING', 'Zoning'],
+  zoning_description: ['ZoneDesc'],
 };
 
 // Thurston County assessor extract (observed live). TAXABLE is a Y/N flag, so the taxable
@@ -219,6 +530,9 @@ const THURSTON_FIELDS = {
   land_acres: ['TOTAL_ACRES', 'TOTAL_ACRE'],
   use_code: false, // county codes are cryptic; the DOR code from the State join is used
   use_description: false,
+  sale_date: ['SALE_DATE', 'SaleDate'],
+  sale_price: ['SALE_PRICE', 'SalePrice'],
+  sale_grantor: ['SELLER_NAM', 'SELLER_NAME', 'SELLER'],
 };
 
 // Skagit County assessor schema (observed live). LandUse holds "(120) HOUSEHOLD, 2-4 UNITS".
@@ -236,6 +550,9 @@ const SKAGIT_FIELDS = {
   land_sqft: false,
   use_code: ['LandUse'],
   use_description: false,
+  sale_date: ['SaleDate'],
+  sale_price: ['SalePrice'],
+  sale_deed_type: ['SaleDeedType'],
 };
 const SKAGIT_COMPUTED = { land_value: { sum: ['ImprLandValue', 'UnimprLandValue', 'TimberLandValue'], label: 'Improved + unimproved + timber land value' } };
 const SKAGIT_SITUS = ['SitusStNo', 'SitusStName'];
@@ -282,6 +599,7 @@ export const PROVIDERS = [
     counties: ['Pierce'],
     useCodeScheme: 'dor-prefix',
     assessorLink: 'https://atip.piercecountywa.gov/app/v2/propertyDetail/{parcel}/summary',
+    zoning: PIERCE_ZONING,
     sources: [
       {
         id: 'tacoma-ats-parcels',
@@ -304,9 +622,7 @@ export const PROVIDERS = [
         url: 'https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Tax_Parcels/FeatureServer/0',
         fields: PIERCE_COUNTY_FIELDS,
         computed: PIERCE_COUNTY_COMPUTED,
-        ownerNote: 'Business_Name lists the taxpayer name for business-owned parcels only',
-        ownerNoteField: 'business',
-        notes: 'Authoritative county layer (CORS enabled) with taxable value, land acres, use code and land-use description; individual taxpayer names are not published here.',
+        notes: 'Authoritative county layer (CORS enabled) with taxable value, land acres, use code, land-use description, exemption code and the business name on the parcel; taxpayer names are withheld from county open data.',
       },
       {
         id: 'soundtransit-pierce-parcels',
@@ -317,10 +633,9 @@ export const PROVIDERS = [
         url: 'https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/1',
         fields: PIERCE_COUNTY_FIELDS,
         computed: PIERCE_COUNTY_COMPUTED,
-        ownerNote: 'Business_Name lists the taxpayer name for business-owned parcels only',
-        ownerNoteField: 'business',
         notes: 'Regional mirror of the county layer; values may lag the county.',
       },
+      PIERCE_ASSESSOR_EXTRACT,
     ],
   },
   {
@@ -329,6 +644,7 @@ export const PROVIDERS = [
     counties: ['King'],
     useCodeScheme: 'county',
     assessorLink: 'https://blue.kingcounty.com/Assessor/eRealProperty/Dashboard.aspx?ParcelNbr={parcel}',
+    zoning: KING_ZONING,
     sources: [
       {
         id: 'king-parcel-address-area',
@@ -364,6 +680,30 @@ export const PROVIDERS = [
         computed: { total_value: KING_COMPUTED.total_value },
         notes: 'Fallback property-themed parcel layer: appraised values, acres and present use; no taxable values or owner.',
       },
+      {
+        id: 'king-parcel-sales-3yr',
+        geometry: false,
+        enrich: true,
+        confidence: 'confirmed',
+        name: 'Parcel sales history, last 3 years (King County Assessor, ArcGIS Online)',
+        publisher: 'King County GIS Center / King County Assessor',
+        url: 'https://services.arcgis.com/Ej0PsM5Aw677QF1W/arcgis/rest/services/PARCEL_SALES3YR_AREA_287/FeatureServer/0',
+        fields: { parcel_id: ['PIN'], owner: false, situs_address: false, sale_date: ['SaleDate'], sale_price: ['SalePrice'], sale_grantor: ['Sellername', 'SellerName'], legal_owner: ['buyername', 'BuyerName'], use_code: false, use_description: false },
+        notesFor: { legal_owner: 'buyer on the most recent recorded sale (King County Assessor sales, last three years)' },
+        notes: 'One feature per recorded sale (excise affidavit) in the last three years: sale date, price, seller and buyer names.',
+      },
+      {
+        id: 'king-propertyinfo-sales',
+        geometry: false,
+        enrich: true,
+        confidence: 'confirmed',
+        name: 'Property sales in the last 3 years (King County Property/KingCo_PropertyInfo)',
+        publisher: 'King County GIS Center / King County Assessor',
+        url: 'https://gismaps.kingcounty.gov/arcgis/rest/services/Property/KingCo_PropertyInfo/MapServer/3',
+        fields: { parcel_id: ['PIN'], owner: false, situs_address: false, sale_date: ['SaleDate'], sale_price: ['SalePrice'], sale_grantor: ['Sellername', 'SellerName'], legal_owner: ['buyername', 'BuyerName'], use_code: false, use_description: false },
+        notesFor: { legal_owner: 'buyer on the most recent recorded sale (King County Assessor sales, last three years)' },
+        notes: 'County-hosted twin of the sales layer, used when the hosted copy is unavailable.',
+      },
     ],
   },
   {
@@ -372,6 +712,7 @@ export const PROVIDERS = [
     counties: ['Snohomish'],
     useCodeScheme: 'county',
     assessorLink: 'https://www.snoco.org/proptax/search.aspx?parcel_number={parcel}',
+    zoning: SNOHOMISH_ZONING,
     sources: [
       {
         id: 'snoco-open-data-parcels',
@@ -403,6 +744,17 @@ export const PROVIDERS = [
         fields: SNOHOMISH_FIELDS,
         notes: 'Regional mirror with the same schema; values may lag the county.',
       },
+      {
+        id: 'snoco-recent-sales',
+        geometry: false,
+        enrich: true,
+        confidence: 'confirmed',
+        name: 'Recent Property Sales (Snohomish County Assessor, ArcGIS Online)',
+        publisher: 'Snohomish County Assessor / GIS',
+        url: 'https://services6.arcgis.com/z6WYi9VRHfgwgtyW/arcgis/rest/services/Recent_Property_Sales/FeatureServer/0',
+        fields: { parcel_id: ['PARCEL_ID'], owner: false, situs_address: false, sale_date: ['TRNSF_DATE'], sale_price: ['SALE_PRICE'], use_code: false, use_description: false },
+        notes: 'Quarterly snapshot of recent sales; the transfer date is published to month precision (e.g. "Jun-2026").',
+      },
     ],
   },
   {
@@ -411,6 +763,7 @@ export const PROVIDERS = [
     counties: ['Spokane'],
     useCodeScheme: 'dor-prefix',
     assessorLink: 'https://cp.spokanecounty.org/SCOUT/propertyinformation/Summary.aspx?PID={parcel}',
+    zoning: SPOKANE_ZONING,
     sources: [
       {
         id: 'spokane-open-data-parcels',
@@ -442,8 +795,8 @@ export const PROVIDERS = [
         name: 'SCOUT Property Lookup (Spokane County), owner join',
         publisher: 'Spokane County GIS (SCOUT)',
         url: 'https://gismo.spokanecounty.org/arcgis/rest/services/SCOUT/PropertyLookup/MapServer/0',
-        fields: { parcel_id: ['PID_NUM'], owner: ['owner_name'], situs_address: ['site_address'], situs_city: ['site_city'], land_acres: ['acreage'], use_description: ['prop_use_desc'] },
-        notes: 'Owner name, use description and acreage keyed by parcel number.',
+        fields: { parcel_id: ['PID_NUM'], owner: ['owner_name'], situs_address: ['site_address'], situs_city: ['site_city'], land_acres: ['acreage'], use_description: ['prop_use_desc'], sale_date: ['document_date'], sale_price: ['gross_sale_price'], sale_deed_type: ['transfer_type'] },
+        notes: 'Owner name, use description, acreage and the most recent sale (document date, gross sale price, transfer type) keyed by parcel number.',
       },
       {
         id: 'spokane-scout-queries',
@@ -474,6 +827,7 @@ export const PROVIDERS = [
     counties: ['Thurston'],
     useCodeScheme: 'dor',
     assessorLink: 'https://tcproperty.co.thurston.wa.us/propsql/basic.asp?fe=PR&pn={parcel}',
+    zoning: THURSTON_ZONING,
     sources: [
       {
         id: 'thurston-enterprise-parcels',
@@ -504,6 +858,7 @@ export const PROVIDERS = [
     counties: ['Yakima'],
     useCodeScheme: 'dor',
     assessorLink: null,
+    zoning: YAKIMA_ZONING,
     sources: [
       {
         id: 'yakima-taxlots',
@@ -517,6 +872,19 @@ export const PROVIDERS = [
         computed: YAKIMA_COMPUTED,
         notes: 'Current tax-roll taxlots with organisation or individual owner names, market values, acres, and DOR use code with description.',
       },
+      {
+        id: 'yakima-sales',
+        geometry: false,
+        enrich: true,
+        joinBy: 'ids',
+        joinField: 'ASSESSOR_N',
+        confidence: 'confirmed',
+        name: 'Sales (Yakima County Assessor)',
+        publisher: 'Yakima County GIS / Assessor',
+        url: 'https://maps.yakimacounty.us/server/rest/services/Assessor/Sales/FeatureServer/11',
+        fields: { parcel_id: ['ASSESSOR_N'], owner: false, situs_address: false, sale_date: ['DOCUMENT_D'], sale_price: ['GROSS_SALE'], use_code: false, use_description: false },
+        notes: 'Recorded sales by assessor number (document date, gross sale price); joined by parcel-number list.',
+      },
       STATEWIDE_ENRICH,
     ],
   },
@@ -526,6 +894,7 @@ export const PROVIDERS = [
     counties: ['Kitsap'],
     useCodeScheme: 'dor',
     assessorLink: 'https://psearch.kitsap.gov/pdetails/Details?parcel={parcel}&page=general',
+    zoning: KITSAP_ZONING,
     sources: [
       {
         id: 'kitsap-health-parcels',
@@ -546,6 +915,7 @@ export const PROVIDERS = [
     counties: ['Clark'],
     useCodeScheme: 'county',
     assessorLink: 'https://gis.clark.wa.gov/gishome/Property/?pid=findSN&account={parcel}',
+    zoning: CLARK_ZONING,
     sources: [
       {
         id: 'clark-taxlots-public',
@@ -575,7 +945,8 @@ export const PROVIDERS = [
         url: 'https://gis.whatcomcounty.us/arcgis/rest/services/EnterprisePublishing/WhatcomCo_Property/MapServer/1',
         fields: {
           parcel_id: ['geo_id', 'prop_id'],
-          owner: ['tax_payer_name_full', 'tax_payer_name', 'title_owner_name_full'],
+          owner: ['tax_payer_name_full', 'tax_payer_name'],
+          legal_owner: ['title_owner_name_full', 'title_owner_name'],
           owner_address: ['tax_payer_add_full'],
           situs_city: ['situs_city'],
           taxable_value: ['taxable_val_total'],
@@ -655,6 +1026,18 @@ export const PROVIDERS = [
         situsCompose: COWLITZ_SITUS,
         computed: COWLITZ_COMPUTED,
         notes: 'Alternate county host documented with a taxable value field; did not answer when probed.',
+      },
+      {
+        id: 'cowlitz-sales-by-parcel',
+        geometry: false,
+        enrich: true,
+        joinBy: 'ids',
+        confidence: 'guess',
+        name: 'Sales By Parcel (Cowlitz County Assessor service)',
+        publisher: 'Cowlitz County GIS / Assessor',
+        url: 'https://gis.cowlitzwa.gov/ccserver/rest/services/Assessor/Sales_By_Parcel/MapServer/0',
+        fields: { owner: false, situs_address: false, use_code: false, use_description: false },
+        notes: 'Documented assessor sales layer; parcel-number and sale fields are resolved from the live schema.',
       },
     ],
   },
@@ -811,6 +1194,19 @@ export const PROVIDERS = [
           assessor_link: ['smartgov_url'],
         },
         notes: 'Assessor-managed parcels with taxpayer, values, acreage and land-use code (observed live).',
+      },
+      {
+        id: 'island-qualified-sales',
+        geometry: false,
+        enrich: true,
+        joinBy: 'ids',
+        joinField: 'ParcelNo',
+        confidence: 'confirmed',
+        name: 'Qualified Sales (Island County Assessor)',
+        publisher: 'Island County GIS / Assessor',
+        url: 'https://maps.islandcountywa.gov/arcgis/rest/services/AssessorFiles/QualifiedSales/MapServer/1',
+        fields: { parcel_id: ['ParcelNo', 'PID'], owner: false, situs_address: false, sale_date: ['sale_date'], sale_price: ['sale_price'], use_code: false, use_description: false, land_acres: false },
+        notes: 'Arm’s-length (ratio-study) sales only; non-qualified transfers are not listed.',
       },
       STATEWIDE_ENRICH,
     ],
