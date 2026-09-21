@@ -2101,7 +2101,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       name: "Zoning Districts 2025 (City of Tacoma Open Data)",
       publisher: "City of Tacoma Planning & Development Services",
       // The hub item id is not stable, so the hosted feature service is found by portal search.
-      item: { query: 'title:"Zoning Districts 2025" Tacoma type:"Feature Service"', match: "tacoma", layer: 0 },
+      item: { query: 'Zoning Districts Tacoma type:"Feature Service"', match: "zoning.*tacoma|tacoma.*zoning", layer: 0 },
       fields: { zoning: ["Zoning", "ZONING", "ZONE", "Zone_Code", "ZONECODE"] },
       jurisdiction: "City of Tacoma",
       extent: [-122.62, 47.13, -122.3, 47.34],
@@ -4595,6 +4595,31 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return out;
   }
   var RANK = { owned: 0, foundation: 1, historical_name: 2, joint_venture: 3, affiliate: 4 };
+  var EXEMPT_TEXT = /(non.?profit|hospital|partial ex|exempt|charit|religious|caregiver|medical)/i;
+  function classifyParcel(rec, opts = {}) {
+    const o = { ...opts, county: opts.county ?? rec.county };
+    let mc = classifyOwner(rec.owner, o);
+    let matchedOn = mc ? rec.ownerSource === "legal" ? "legal owner (deed)" : "taxpayer of record" : "";
+    let deedDiffers = false;
+    let inferred = false;
+    if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
+      mc = classifyOwner(rec.legalOwner, o);
+      if (mc) matchedOn = "legal owner (deed)";
+    } else if (mc && rec.ownerSource === "taxpayer" && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, o)) {
+      deedDiffers = true;
+      matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
+    }
+    const business = rec.businessName ? classifyOwner(rec.businessName, o) : null;
+    if (!mc && business && !rec.owner && !rec.legalOwner && EXEMPT_TEXT.test(rec.exemption || "")) {
+      mc = business;
+      matchedOn = `business name "${rec.businessName}" on a tax-exempt parcel (${rec.exemption}); owner name withheld by the source, ownership inferred`;
+      inferred = true;
+    }
+    return {
+      multicare: mc ? { ...mc, matchedOn, deedDiffers, inferred, label: inferred ? `${mc.label} (inferred)` : mc.label } : null,
+      business
+    };
+  }
   function parseUserPatterns(text) {
     const out = [];
     for (const raw of String(text || "").split(/\r?\n/)) {
@@ -5115,19 +5140,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return state.occupiedMarks[rec.markKey] ?? state.occupiedMarks[rec.key];
   }
   function classifyRecord(rec) {
-    const opts = { patterns: state.patterns, county: rec.county };
-    let mc = classifyOwner(rec.owner, opts);
-    let matchedOn = mc ? rec.ownerSource === "legal" ? "legal owner (deed)" : "taxpayer of record" : "";
-    let deedDiffers = false;
-    if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
-      mc = classifyOwner(rec.legalOwner, opts);
-      if (mc) matchedOn = "legal owner (deed)";
-    } else if (mc && rec.ownerSource === "taxpayer" && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, opts)) {
-      deedDiffers = true;
-      matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
-    }
-    rec.multicare = mc ? { ...mc, matchedOn, deedDiffers } : null;
-    const biz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
+    const { multicare, business: biz } = classifyParcel(rec, { patterns: state.patterns, county: rec.county });
+    rec.multicare = multicare;
     const mark = markOf(rec);
     const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
     rec.occupied = Boolean(mark) || Boolean(loc) || Boolean(biz);
@@ -5908,6 +5922,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (recs.some((r) => r.value !== null && r.valueKind !== "taxable")) notes.push("Values are total market or land plus improvement values where the assessor publishes no taxable value.");
       if (recs.some((r) => r.acresSource === "gis")) notes.push("Some acreages are computed from the parcel polygon.");
       if (recs.some((r) => r.multicare?.deedDiffers)) notes.push("MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.");
+      if (recs.some((r) => r.multicare?.inferred)) notes.push("Where the source withholds owner names, MultiCare ownership is inferred from a MultiCare business name on a tax-exempt parcel.");
       printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || "n/a"}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}` });
     });
     window.addEventListener("resize", () => state.map.invalidateSize());

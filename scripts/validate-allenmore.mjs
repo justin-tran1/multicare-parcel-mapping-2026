@@ -16,8 +16,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ParcelService } from '../js/parcels.js';
-import { classifyOwner } from '../js/multicare.js';
-import { normalizeName } from '../js/multicare.js';
+import { classifyParcel, normalizeName } from '../js/multicare.js';
 import { SITE_BASE } from '../js/config.js';
 import {
   makeProjector, projectPolygons, distanceFromOriginToPolygons, circleBBox, expandBBox, toMeters, labelPoint,
@@ -126,12 +125,9 @@ export async function main(argv = process.argv.slice(2)) {
     if (d <= radiusM) {
       rec.distanceM = d;
       rec.labelLngLat = projector.toLngLat(labelPoint(polys));
-      const opts = { county: rec.county };
-      let mc = classifyOwner(rec.owner, opts);
-      let matchedOn = mc ? (rec.ownerSource === 'legal' ? 'legal owner' : 'taxpayer') : '';
-      if (!mc && rec.legalOwner) { mc = classifyOwner(rec.legalOwner, opts); if (mc) matchedOn = 'legal owner'; }
-      rec.multicare = mc ? { ...mc, matchedOn } : null;
-      rec.occupiedBiz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
+      const { multicare, business } = classifyParcel(rec);
+      rec.multicare = multicare;
+      rec.occupiedBiz = business;
       hits.push(rec);
     }
   }

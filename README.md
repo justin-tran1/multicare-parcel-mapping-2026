@@ -86,7 +86,12 @@ self-contained file that can be emailed.
   those are marked `~` with the assessor's reason, and the most recent arm's-length sale is
   listed separately when it differs. Snohomish publishes sale dates to month precision.
 - **MultiCare matching** runs on the taxpayer name and the legal owner name; a MultiCare
-  business name only flags occupancy. Patterns are restricted by county where a name is
+  business name only flags occupancy, with one exception: when a source withholds every
+  owner name and the parcel carries a non-profit or hospital exemption (granted to an
+  owner-operator), a MultiCare business name is reported as MultiCare owned and labelled
+  *inferred* in the badge, popup, CSV and exhibit footer. This is how the Allenmore and
+  Wellfound hospital parcels are recognised on networks that cannot reach the City of
+  Tacoma taxpayer layer (their deeds predate the county sale file). Patterns are restricted by county where a name is
   ambiguous (Deaconess and Valley Hospital in Spokane, Memorial in Yakima, Good Samaritan
   in Pierce) and known look-alikes (Valley Medical Center, Good Samaritan Society, Care Net,
   Inland Northwest Health Services, public hospital districts) are vetoed.
