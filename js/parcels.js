@@ -60,6 +60,7 @@ async function resolveSourceUrl(source) {
       const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`, { timeoutMs: 20000 });
       if (!item?.url) throw new ArcGISError('Portal item has no service URL', { code: 'item', url: `${portal}/home/item.html?id=${id}` });
       let url = String(item.url).trim().replace(/\/+$/, '');
+      if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) throw new ArcGISError('Portal item URL is not an https service URL', { code: 'item', url: `${portal}/home/item.html?id=${id}` });
       if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
       return url;
     })();
@@ -530,6 +531,9 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
   const taxpayer = attrs.owner || '';
   const legalOwner = attrs.legal_owner || '';
   const owner = taxpayer || legalOwner;
+  // Whether any source consulted for this parcel has a taxpayer / owner field at all: a
+  // blank value in a published field is "blank", not "not published".
+  const ownerPublished = Boolean(attrs._sourceFields?.owner);
   const zoningSource = attrs._zoningSource || (attrs.zoning ? 'assessor' : '');
 
   return {
@@ -544,6 +548,7 @@ export function buildRecord({ feature, provider, source, attrs, county }) {
     parcelId,
     owner,
     ownerSource: taxpayer ? 'taxpayer' : legalOwner ? 'legal' : 'none',
+    ownerPublished,
     ownerNote: attrs._ownerNote || '',
     taxpayer,
     legalOwner,

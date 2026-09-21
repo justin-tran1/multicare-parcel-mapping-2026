@@ -20,9 +20,18 @@ export function formatSaleDate(iso) {
 /** Footnote markers explaining how the displayed owner name was obtained. */
 export function ownerMarkers(r) {
   let h = '';
-  if (r.ownerSource === 'legal') h += '<span class="sup" title="The taxpayer name is not published by this data source; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>';
+  if (r.ownerSource === 'legal') {
+    h += r.ownerPublished
+      ? '<span class="sup" title="The taxpayer name is blank in the assessor record; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>'
+      : '<span class="sup" title="The taxpayer name is not published by this data source; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>';
+  }
   if (r.ownerNote) h += `<span class="sup" title="${escapeHtml(r.ownerNote)}">&#8225;</span>`;
   return h;
+}
+
+/** Cell text for a parcel without any owner name. */
+export function missingOwnerText(r) {
+  return r.ownerPublished ? 'blank in assessor record' : 'not published';
 }
 
 function saleNote(r) {
@@ -68,7 +77,7 @@ export class ResultsTable {
   columns() {
     const cols = [
       { key: 'id', label: 'ID', cls: 'id', value: (r) => r.id, html: (r) => String(r.id), sort: (a, b) => num(a.id, b.id) },
-      { key: 'owner', label: 'True Owner', value: (r) => r.owner || '', html: (r) => (r.owner ? escapeHtml(r.owner) + ownerMarkers(r) : '<span class="muted">not published</span>'), sort: (a, b) => str(a.owner, b.owner) },
+      { key: 'owner', label: 'True Owner', value: (r) => r.owner || '', html: (r) => (r.owner ? escapeHtml(r.owner) + ownerMarkers(r) : `<span class="muted">${missingOwnerText(r)}</span>`), sort: (a, b) => str(a.owner, b.owner) },
     ];
     if (this.optional.legalOwner) {
       cols.push({
@@ -111,7 +120,7 @@ export class ResultsTable {
           label: 'Sale Price',
           cls: 'num',
           value: (r) => (r.salePrice ?? ''),
-          html: (r) => (r.salePrice !== null && r.salePrice !== undefined ? formatCurrency(r.salePrice) : NA),
+          html: (r) => (r.salePrice !== null && r.salePrice !== undefined ? formatCurrency(r.salePrice) + (r.saleValid === false ? `<span class="sup" title="${escapeHtml(saleNote(r))}">~</span>` : '') : NA),
           sort: (a, b) => num(a.salePrice, b.salePrice),
         },
       );
@@ -128,7 +137,13 @@ export class ResultsTable {
 
   sorted() {
     const cols = this.columns();
-    const col = cols.find((c) => c.key === this.sortKey) || cols[0];
+    let col = cols.find((c) => c.key === this.sortKey);
+    if (!col) {
+      // the sorted column was switched off: fall back to ID order, ascending
+      this.sortKey = 'id';
+      this.sortDir = 1;
+      col = cols[0];
+    }
     return [...this.records].sort((a, b) => this.sortDir * col.sort(a, b) || num(a.id, b.id));
   }
 

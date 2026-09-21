@@ -133,11 +133,17 @@ function classifyRecord(rec) {
   // Ownership: the taxpayer of record first, then the legal owner on the latest deed.
   let mc = classifyOwner(rec.owner, opts);
   let matchedOn = mc ? (rec.ownerSource === 'legal' ? 'legal owner (deed)' : 'taxpayer of record') : '';
+  let deedDiffers = false;
   if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
     mc = classifyOwner(rec.legalOwner, opts);
     if (mc) matchedOn = 'legal owner (deed)';
+  } else if (mc && rec.ownerSource === 'taxpayer' && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, opts)) {
+    // MultiCare pays the tax bill but the latest deed names someone else (ground lease,
+    // landlord): say so wherever the match is shown.
+    deedDiffers = true;
+    matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
   }
-  rec.multicare = mc ? { ...mc, matchedOn } : null;
+  rec.multicare = mc ? { ...mc, matchedOn, deedDiffers } : null;
   // Occupancy: a MultiCare business name on the parcel does not imply ownership.
   const biz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
   const mark = markOf(rec);
@@ -277,11 +283,12 @@ function popupHtml(rec) {
   if (rec.occupied) badges.push(`<span class="badge occ" title="${escapeHtml(rec.occupiedBy || '')}">MultiCare occupied</span>`);
   const muted = (t) => `<span class="muted">${escapeHtml(t)}</span>`;
   const rows = [];
+  const noTaxpayer = rec.ownerPublished ? 'blank in the assessor record' : 'not published by this source';
   if (rec.ownerSource === 'legal') {
     rows.push(['Owner (deed grantee)', escapeHtml(rec.owner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : '')]);
-    rows.push(['Taxpayer', muted('not published by this source')]);
+    rows.push(['Taxpayer', muted(noTaxpayer)]);
   } else {
-    rows.push(['Taxpayer / owner', rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` ${muted(`(${rec.ownerNote})`)}` : '') : muted('not published by this source')]);
+    rows.push(['Taxpayer / owner', rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` ${muted(`(${rec.ownerNote})`)}` : '') : muted(noTaxpayer)]);
     rows.push(['Legal owner (deed)', rec.legalOwner ? escapeHtml(rec.legalOwner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : '') : muted('not available')]);
   }
   if (rec.businessName) rows.push(['Business on parcel', `${escapeHtml(rec.businessName)} ${muted('(occupant per assessor, not ownership)')}`]);
@@ -668,11 +675,12 @@ function renderSources(statuses) {
     else status = `<span class="status-ok">online</span> · ${s.count} record${s.count === 1 ? '' : 's'} in query envelope${s.joined !== undefined ? ` · ${s.joined} parcels matched` : ''}${s.truncated ? ' (truncated)' : ''}${s.zoned ? ` · zoning assigned to ${s.zoned}` : ''}`;
     items.push(`<div class="source ${s.ok ? '' : 'err'}">
       <div class="name">${escapeHtml(s.providerName || s.provider)}${roleLabel ? ` <span class="muted">(${roleLabel})</span>` : ''}</div>
-      <div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></div>
+      <div>${/^https?:\/\//i.test(String(s.url || '')) ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a>` : escapeHtml(s.source)}</div>
       <div>${status}</div>
       ${mapRows.length ? `<div class="fmap">${mapRows.join(' · ')}</div>` : ''}
       ${s.ok && s.note && s.role !== 'primary' ? `<div class="fmap">${escapeHtml(s.note)}</div>` : ''}
       ${s.ok && !fm.owner && s.role === 'primary' ? '<div class="fmap">This layer does not publish taxpayer names; the legal owner from the latest deed is shown where available.</div>' : ''}
+      ${s.ok && s.role === 'primary' && s.count > 0 && s.zoned === 0 && !fm.zoning ? '<div class="fmap">No zoning-district polygon covered these parcels.</div>' : ''}
       ${s.confidence && s.confidence !== 'confirmed' ? `<div class="fmap">Endpoint ${escapeHtml(s.confidence === 'likely' ? 'documented but not independently verified' : 'unverified; schema resolved at runtime')}.</div>` : ''}
     </div>`);
   }
@@ -969,7 +977,14 @@ function wireControls() {
     const byRole = (roles) => [...new Set(state.study.statuses.filter((s) => s.ok && s.count !== 0 && roles.includes(s.role || 'primary')).map((s) => s.source))].join('; ');
     const sources = byRole(['primary', 'enrich', 'static']);
     const zoning = [...new Set(state.study.records.map((r) => r.zoningSource).filter((z) => z && z !== 'assessor'))].join('; ');
-    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}` });
+    // The printed table drops the footnote markers, so state their qualifications once.
+    const recs = state.study.records;
+    const notes = [];
+    if (recs.some((r) => r.ownerSource === 'legal')) notes.push('Where the taxpayer name is withheld, the owner shown is the grantee on the most recent recorded deed.');
+    if (recs.some((r) => r.value !== null && r.valueKind !== 'taxable')) notes.push('Values are total market or land plus improvement values where the assessor publishes no taxable value.');
+    if (recs.some((r) => r.acresSource === 'gis')) notes.push('Some acreages are computed from the parcel polygon.');
+    if (recs.some((r) => r.multicare?.deedDiffers)) notes.push('MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.');
+    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
 }

@@ -1053,7 +1053,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
       <section class="panel small" aria-labelledby="h-help">
         <h2 id="h-help">About</h2>
-        <p class="hint">Radius rings are measured on the WGS84 ellipsoid. A parcel is listed when any part of it touches or falls within the ring. Values marked * are total market or land + improvement values where the assessor does not publish a taxable value; acreage marked † is computed from the parcel polygon. Owners marked § are the grantee on the latest recorded deed because the source withholds taxpayer names; sales marked ~ were not treated as arm’s-length market sales by the assessor. Zoning is read from the jurisdiction’s zoning-district layer at the parcel’s label point. Verify with the county assessor before relying on any figure.</p>
+        <p class="hint">Radius rings are measured on the WGS84 ellipsoid. A parcel is listed when any part of it touches or falls within the ring. Values marked * are total market or land + improvement values where the assessor does not publish a taxable value; acreage marked † is computed from the parcel polygon. Owners marked § are the grantee on the latest recorded deed because the source withholds (or left blank) the taxpayer name; names marked ‡ carry a source caveat shown on hover; sales and prices marked ~ were not treated as arm’s-length market sales by the assessor. Zoning is read from the jurisdiction’s zoning-district layer at the parcel’s label point. Verify with the county assessor before relying on any figure.</p>
       </section>
     </aside>
 
@@ -3404,6 +3404,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`, { timeoutMs: 2e4 });
         if (!item?.url) throw new ArcGISError("Portal item has no service URL", { code: "item", url: `${portal}/home/item.html?id=${id}` });
         let url = String(item.url).trim().replace(/\/+$/, "");
+        if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) throw new ArcGISError("Portal item URL is not an https service URL", { code: "item", url: `${portal}/home/item.html?id=${id}` });
         if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
         return url;
       })();
@@ -3807,6 +3808,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const taxpayer = attrs.owner || "";
     const legalOwner = attrs.legal_owner || "";
     const owner = taxpayer || legalOwner;
+    const ownerPublished = Boolean(attrs._sourceFields?.owner);
     const zoningSource = attrs._zoningSource || (attrs.zoning ? "assessor" : "");
     return {
       key,
@@ -3821,6 +3823,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       parcelId,
       owner,
       ownerSource: taxpayer ? "taxpayer" : legalOwner ? "legal" : "none",
+      ownerPublished,
       ownerNote: attrs._ownerNote || "",
       taxpayer,
       legalOwner,
@@ -4551,8 +4554,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   function csvCell(v) {
     if (v === null || v === void 0) return "";
-    const s = String(v);
-    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = String(v);
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+    return /[",\n\r']/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
   function toCSV(rows, columns) {
     const head = columns.map((c) => csvCell(c.label)).join(",");
@@ -4590,9 +4594,14 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   function ownerMarkers(r) {
     let h = "";
-    if (r.ownerSource === "legal") h += '<span class="sup" title="The taxpayer name is not published by this data source; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>';
+    if (r.ownerSource === "legal") {
+      h += r.ownerPublished ? '<span class="sup" title="The taxpayer name is blank in the assessor record; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>' : '<span class="sup" title="The taxpayer name is not published by this data source; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>';
+    }
     if (r.ownerNote) h += `<span class="sup" title="${escapeHtml(r.ownerNote)}">&#8225;</span>`;
     return h;
+  }
+  function missingOwnerText(r) {
+    return r.ownerPublished ? "blank in assessor record" : "not published";
   }
   function saleNote(r) {
     if (r.saleValid === false) return `Not treated as an arm's-length market sale by the assessor${r.saleExcludeReason ? ` (${r.saleExcludeReason})` : ""}${r.saleDeedType ? ` \xB7 ${r.saleDeedType}` : ""}`;
@@ -4635,7 +4644,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     columns() {
       const cols = [
         { key: "id", label: "ID", cls: "id", value: (r) => r.id, html: (r) => String(r.id), sort: (a, b) => num(a.id, b.id) },
-        { key: "owner", label: "True Owner", value: (r) => r.owner || "", html: (r) => r.owner ? escapeHtml(r.owner) + ownerMarkers(r) : '<span class="muted">not published</span>', sort: (a, b) => str(a.owner, b.owner) }
+        { key: "owner", label: "True Owner", value: (r) => r.owner || "", html: (r) => r.owner ? escapeHtml(r.owner) + ownerMarkers(r) : `<span class="muted">${missingOwnerText(r)}</span>`, sort: (a, b) => str(a.owner, b.owner) }
       ];
       if (this.optional.legalOwner) {
         cols.push({
@@ -4678,7 +4687,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
             label: "Sale Price",
             cls: "num",
             value: (r) => r.salePrice ?? "",
-            html: (r) => r.salePrice !== null && r.salePrice !== void 0 ? formatCurrency(r.salePrice) : NA,
+            html: (r) => r.salePrice !== null && r.salePrice !== void 0 ? formatCurrency(r.salePrice) + (r.saleValid === false ? `<span class="sup" title="${escapeHtml(saleNote(r))}">~</span>` : "") : NA,
             sort: (a, b) => num(a.salePrice, b.salePrice)
           }
         );
@@ -4693,7 +4702,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     }
     sorted() {
       const cols = this.columns();
-      const col = cols.find((c) => c.key === this.sortKey) || cols[0];
+      let col = cols.find((c) => c.key === this.sortKey);
+      if (!col) {
+        this.sortKey = "id";
+        this.sortDir = 1;
+        col = cols[0];
+      }
       return [...this.records].sort((a, b) => this.sortDir * col.sort(a, b) || num(a.id, b.id));
     }
     render() {
@@ -5016,11 +5030,15 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const opts = { patterns: state.patterns, county: rec.county };
     let mc = classifyOwner(rec.owner, opts);
     let matchedOn = mc ? rec.ownerSource === "legal" ? "legal owner (deed)" : "taxpayer of record" : "";
+    let deedDiffers = false;
     if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
       mc = classifyOwner(rec.legalOwner, opts);
       if (mc) matchedOn = "legal owner (deed)";
+    } else if (mc && rec.ownerSource === "taxpayer" && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, opts)) {
+      deedDiffers = true;
+      matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
     }
-    rec.multicare = mc ? { ...mc, matchedOn } : null;
+    rec.multicare = mc ? { ...mc, matchedOn, deedDiffers } : null;
     const biz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
     const mark = markOf(rec);
     const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
@@ -5140,11 +5158,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (rec.occupied) badges.push(`<span class="badge occ" title="${escapeHtml(rec.occupiedBy || "")}">MultiCare occupied</span>`);
     const muted = (t) => `<span class="muted">${escapeHtml(t)}</span>`;
     const rows = [];
+    const noTaxpayer = rec.ownerPublished ? "blank in the assessor record" : "not published by this source";
     if (rec.ownerSource === "legal") {
       rows.push(["Owner (deed grantee)", escapeHtml(rec.owner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : "")]);
-      rows.push(["Taxpayer", muted("not published by this source")]);
+      rows.push(["Taxpayer", muted(noTaxpayer)]);
     } else {
-      rows.push(["Taxpayer / owner", rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` ${muted(`(${rec.ownerNote})`)}` : "") : muted("not published by this source")]);
+      rows.push(["Taxpayer / owner", rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` ${muted(`(${rec.ownerNote})`)}` : "") : muted(noTaxpayer)]);
       rows.push(["Legal owner (deed)", rec.legalOwner ? escapeHtml(rec.legalOwner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : "") : muted("not available")]);
     }
     if (rec.businessName) rows.push(["Business on parcel", `${escapeHtml(rec.businessName)} ${muted("(occupant per assessor, not ownership)")}`]);
@@ -5516,11 +5535,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       else status = `<span class="status-ok">online</span> \xB7 ${s.count} record${s.count === 1 ? "" : "s"} in query envelope${s.joined !== void 0 ? ` \xB7 ${s.joined} parcels matched` : ""}${s.truncated ? " (truncated)" : ""}${s.zoned ? ` \xB7 zoning assigned to ${s.zoned}` : ""}`;
       items.push(`<div class="source ${s.ok ? "" : "err"}">
       <div class="name">${escapeHtml(s.providerName || s.provider)}${roleLabel ? ` <span class="muted">(${roleLabel})</span>` : ""}</div>
-      <div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></div>
+      <div>${/^https?:\/\//i.test(String(s.url || "")) ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a>` : escapeHtml(s.source)}</div>
       <div>${status}</div>
       ${mapRows.length ? `<div class="fmap">${mapRows.join(" \xB7 ")}</div>` : ""}
       ${s.ok && s.note && s.role !== "primary" ? `<div class="fmap">${escapeHtml(s.note)}</div>` : ""}
       ${s.ok && !fm.owner && s.role === "primary" ? '<div class="fmap">This layer does not publish taxpayer names; the legal owner from the latest deed is shown where available.</div>' : ""}
+      ${s.ok && s.role === "primary" && s.count > 0 && s.zoned === 0 && !fm.zoning ? '<div class="fmap">No zoning-district polygon covered these parcels.</div>' : ""}
       ${s.confidence && s.confidence !== "confirmed" ? `<div class="fmap">Endpoint ${escapeHtml(s.confidence === "likely" ? "documented but not independently verified" : "unverified; schema resolved at runtime")}.</div>` : ""}
     </div>`);
     }
@@ -5794,7 +5814,13 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const byRole = (roles) => [...new Set(state.study.statuses.filter((s) => s.ok && s.count !== 0 && roles.includes(s.role || "primary")).map((s) => s.source))].join("; ");
       const sources = byRole(["primary", "enrich", "static"]);
       const zoning = [...new Set(state.study.records.map((r) => r.zoningSource).filter((z) => z && z !== "assessor"))].join("; ");
-      printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || "n/a"}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}` });
+      const recs = state.study.records;
+      const notes = [];
+      if (recs.some((r) => r.ownerSource === "legal")) notes.push("Where the taxpayer name is withheld, the owner shown is the grantee on the most recent recorded deed.");
+      if (recs.some((r) => r.value !== null && r.valueKind !== "taxable")) notes.push("Values are total market or land plus improvement values where the assessor publishes no taxable value.");
+      if (recs.some((r) => r.acresSource === "gis")) notes.push("Some acreages are computed from the parcel polygon.");
+      if (recs.some((r) => r.multicare?.deedDiffers)) notes.push("MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.");
+      printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || "n/a"}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}` });
     });
     window.addEventListener("resize", () => state.map.invalidateSize());
   }
