@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { installMockArcGIS, makeParcels, ALLENMORE, TACOMA_URL, PIERCE_URL } from './fixtures/mock-arcgis.mjs';
+import { installMockArcGIS, makeParcels, makeZones, ALLENMORE, TACOMA_URL, PIERCE_URL, TACOMA_ZONING_URL } from './fixtures/mock-arcgis.mjs';
 import { makeProjector, projectPolygons, distanceFromOriginToPolygons, toMeters } from '../../js/geometry.js';
 
 const parcels = makeParcels();
@@ -187,6 +187,43 @@ test.describe('radius study', () => {
     await expect(page.locator('table.parcels tbody tr').first().locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
   });
 
+  test('zoning falls back from the city layer to the county layer, then to the statewide atlas', async ({ page }) => {
+    // county layer and atlas both cover the area with different codes; the city layer is down
+    const countyZones = makeZones().map((z) => ({ ...z, code: `CTY-${z.code}`, desc: `County ${z.desc}` }));
+    const wazaZones = makeZones().map((z) => ({ ...z, code: `ATLAS-${z.code}`, desc: `Atlas ${z.desc}` }));
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await installMockArcGIS(page, { parcels, fail: new Set([TACOMA_ZONING_URL]), countyZones, wazaZones });
+    await page.goto(hashFor());
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first).toBeVisible({ timeout: 20000 });
+    await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('CTY-HMX');
+    await expect(page.locator('#sources')).toContainText('unavailable');
+    await expect(page.locator('#sources')).toContainText('Zoning Districts 2025');
+    const rec = await page.evaluate(() => { const r = window.__parcelApp.state.study.records[0]; return { zoningSource: r.zoningSource, jurisdiction: r.zoningJurisdiction, desc: r.zoningDescription }; });
+    expect(rec.zoningSource).toContain('unincorporated Pierce County');
+    expect(rec.jurisdiction).toBe('Pierce County (unincorporated)');
+    expect(rec.desc).toBe('County Hospital Medical Mixed-Use District');
+    expect(errors).toEqual([]);
+  });
+
+  test('the statewide zoning atlas covers parcels when no jurisdiction layer does', async ({ page }) => {
+    const wazaZones = makeZones().map((z) => ({ ...z, code: `ATLAS-${z.code}` }));
+    await installMockArcGIS(page, { parcels, fail: new Set([TACOMA_ZONING_URL]), wazaZones });
+    await page.goto(hashFor());
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first).toBeVisible({ timeout: 20000 });
+    await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('ATLAS-HMX');
+    const rec = await page.evaluate(() => { const r = window.__parcelApp.state.study.records[0]; return { zoningSource: r.zoningSource, jurisdiction: r.zoningJurisdiction }; });
+    expect(rec.zoningSource).toContain('Washington Zoning Atlas');
+    expect(rec.jurisdiction).toBe('Tacoma'); // from the atlas polygon's Jurisdiction field
+    // The exhibit footer names the zoning layer actually used
+    await page.evaluate(() => { window.print = () => {}; });
+    await page.click('#btn-print');
+    await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+    await expect(page.locator('#exhibit-footer')).toContainText('Zoning: Washington Zoning Atlas');
+  });
+
   test('a missing weekly extract is reported and the study still completes', async ({ page }) => {
     await installMockArcGIS(page, { parcels, extract: false });
     await page.goto(hashFor());
@@ -236,10 +273,13 @@ test.describe('radius study', () => {
     await expect(page.locator('table.parcels thead')).toContainText('Parcel #');
   });
 
-  test('cancelling an in-flight study does not demote the primary owner-bearing layer', async ({ page }) => {
+  test('cancelling an in-flight study does not demote the primary owner-bearing layer or lose zoning and deed data', async ({ page }) => {
     const log = await installMockArcGIS(page, { parcels, delayMs: 350 });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     await page.goto(hashFor());
-    // Re-run the study twice while the first metadata request is still in flight.
+    // Re-run the study twice while the first metadata, hub-item and shard requests are in flight.
     await page.waitForTimeout(80);
     await page.fill('#radius', '200');
     await page.dispatchEvent('#radius', 'input');
@@ -248,11 +288,18 @@ test.describe('radius study', () => {
     await page.dispatchEvent('#radius', 'input');
     const n = expectedHits(toMeters(220, 'yd')).length;
     await expect(page.locator('table.parcels tbody tr')).toHaveCount(n, { timeout: 30000 });
-    await expect(page.locator('table.parcels tbody tr').first()).toContainText('MULTICARE HEALTH SYSTEMS');
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first).toContainText('MULTICARE HEALTH SYSTEMS');
+    await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
+    await expect(first.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toContainText('MULTICARE HEALTH SYSTEM');
     await expect(page.locator('#sources')).not.toContainText('unavailable');
+    await expect(page.locator('#sources')).not.toContainText('Cancelled');
     await expect(page.locator('#sources')).toContainText('TAXPAYERNAME');
-    // metadata for the Tacoma layer was fetched exactly once despite the cancellations
+    // metadata for the Tacoma layer, the zoning hub item and its layer were fetched exactly once despite the cancellations
     expect(log.tacoma.filter((r) => !r.url.includes('/query')).length).toBe(1);
+    expect(log.items.filter((id) => id === 'e71809b0bb4e4365a478a46117583daf').length).toBe(1);
+    expect(log.tacomaZoning.filter((r) => !r.url.includes('/query')).length).toBe(1);
+    expect(errors.filter((e) => !/favicon|net::ERR/.test(e)), `page errors: ${errors.join('\n')}`).toEqual([]);
   });
 
   test('a hash without coordinates does not drop a pin at 0,0 and typed radii are not clobbered', async ({ page }) => {

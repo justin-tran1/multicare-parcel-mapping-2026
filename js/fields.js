@@ -47,7 +47,8 @@ const HEURISTICS = {
   },
   owner_address: {
     include: /(taxpayer|owner|ownr|mail).*?(addr|address|street|line)|(addr|address).*?(taxpayer|owner|mail)/i,
-    exclude: /(city|state|zip)/i,
+    // the title / deed holder's mailing line is not the taxpayer's address
+    exclude: /(city|state|zip|title|legal|deed|grantee)/i,
   },
   situs_address: {
     include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr|physical_?addr)/i,
@@ -181,32 +182,46 @@ const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value',
  */
 export function toISODate(v, { epochMs = false } = {}) {
   if (v === null || v === undefined || v === '') return null;
+  const maxYear = new Date().getUTCFullYear() + 1;
+  const yearOk = (y) => y >= 1800 && y <= maxYear;
+  const ymd = (y, mo, d) => {
+    if (!yearOk(y) || mo < 1 || mo > 12 || d < 1 || d > 31) return null; // placeholders such as 00/00/0000, 1/1/1900 are "no sale"
+    if (y === 1900 && mo === 1 && d === 1) return null;
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+  const fromDate = (dt) => {
+    if (Number.isNaN(dt.getTime())) return null;
+    return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+  };
   if (typeof v === 'number') {
     if (!Number.isFinite(v)) return null;
     // Esri date fields are always epoch milliseconds (negative before 1970).
-    if (epochMs) return new Date(v).toISOString().slice(0, 10);
-    if (v > 1e11) return new Date(v).toISOString().slice(0, 10); // epoch ms
-    if (v > 1e9) return new Date(v * 1000).toISOString().slice(0, 10); // epoch s
-    if (v >= 18000101 && v <= 21001231) return `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6, 8)}`;
-    if (v >= 1800 && v <= 2100) return `${v}`;
+    if (epochMs) return fromDate(new Date(v));
+    if (Math.abs(v) >= 1e11) return fromDate(new Date(v)); // epoch ms
+    if (v >= 3e8) return fromDate(new Date(v * 1000)); // epoch s (1979 onwards)
+    if (v >= 18000101 && v <= 21001231) return ymd(Math.floor(v / 10000), Math.floor(v / 100) % 100, v % 100);
+    if (yearOk(v) && Number.isInteger(v)) return `${v}`;
     return null;
   }
   const s = String(v).trim();
   if (!s) return null;
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = s.match(/^(\d{4})-(\d{2})$/);
+  if (m) return yearOk(Number(m[1])) && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${m[1]}-${m[2]}` : null;
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  if (m) return ymd(Number(m[3]), Number(m[1]), Number(m[2]));
   m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = s.match(/^([A-Za-z]{3})-(\d{4})$/); // "Jun-2026"
+  if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = s.match(/^([A-Za-z]{3,9})[-\s](\d{4})$/); // "Jun-2026", "Sept 2026"
   if (m) {
-    const mi = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(m[1].toLowerCase());
-    if (mi >= 0) return `${m[2]}-${String(mi + 1).padStart(2, '0')}`;
+    const mi = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi >= 0 && yearOk(Number(m[2]))) return `${m[2]}-${String(mi + 1).padStart(2, '0')}`;
+    return null;
   }
-  if (/^\d{4}$/.test(s)) return s;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  if (/^\d{4}$/.test(s)) return yearOk(Number(s)) ? s : null;
+  if (/^\d+(\.\d+)?$/.test(s)) return toISODate(Number(s), { epochMs }); // numeric string
+  return fromDate(new Date(s));
 }
 
 /**

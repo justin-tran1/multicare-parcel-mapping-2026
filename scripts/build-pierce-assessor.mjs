@@ -401,8 +401,13 @@ async function loadTable(name, { from, cache, onRow }) {
   text = null; // release the decoded file before the next table
   console.log(`  ${name}: ${(total - bad).toLocaleString()} rows parsed, ${bad.toLocaleString()} malformed`);
   if (bad) console.log(`    e.g. ${badSamples.join(' | ')}`);
-  if (total && bad / total > 0.01) throw new Error(`${name}: ${bad} of ${total} rows do not have ${layout.length} fields; the county layout may have changed (see ${METADATA_URL}${name}.pdf)`);
+  checkLayout(name, bad, total);
   return { source, dated, rows: total - bad, malformed: bad, columns: layout.length };
+}
+
+/** Aborts the build when more than 1% of a table's rows do not match the documented layout. */
+export function checkLayout(name, bad, total) {
+  if (total && bad / total > 0.01) throw new Error(`${name}: ${bad} of ${total} rows do not have ${LAYOUTS[name].length} fields; the county layout may have changed (see ${METADATA_URL}${name}.pdf)`);
 }
 
 export async function writeOutput({ records, stats, outDir, prefixLength, files, multicare }) {

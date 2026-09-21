@@ -58,7 +58,8 @@ export function makeParcels({ center = ALLENMORE, cols = 12, rows = 10, w = 70, 
         acres,
         land,
         impr,
-        taxable: owner === 'VFW' || /CHURCH/i.test(owner) ? 0 : land + impr,
+        // exempt: the hospital campus, the VFW post and churches
+        taxable: owner === 'VFW' || /CHURCH/i.test(owner) || containsCenter ? 0 : land + impr,
         // the weekly assessor extract covers two parcels in three (deed grantee = legal owner)
         inExtract: oid % 3 !== 0,
         centre: containsCenter,
@@ -222,7 +223,7 @@ function esriPage(features, params, propsOf, pageSize) {
  * options.extract = false disables the mocked weekly assessor extract (404s).
  * Returns a log of requests per layer.
  */
-export async function installMockArcGIS(page, { parcels = makeParcels(), zones = makeZones(), fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0, extract = true } = {}) {
+export async function installMockArcGIS(page, { parcels = makeParcels(), zones = makeZones(), countyZones = [], wazaZones = [], fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0, extract = true } = {}) {
   const log = { tacoma: [], pierce: [], wa: [], tacomaZoning: [], pierceZoning: [], waza: [], items: [], extract: [], tiles: 0, other: [], blocked: [] };
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
@@ -261,6 +262,7 @@ export async function installMockArcGIS(page, { parcels = makeParcels(), zones =
     // Business_Name is the business on the parcel (occupant), never the taxpayer
     Business_Name: pierceOwnerNames ? f.owner : (f.centre ? 'MULTICARE ALLENMORE HOSPITAL' : /(INC|LLC|REIT|BANK)/i.test(f.owner) ? f.owner : null),
     Land_Acres: Number(f.acres.toFixed(4)), Land_Value: f.land, Improvement_Value: f.impr, Taxable_Value: f.taxable, Use_Code: f.code, Landuse_Description: f.desc,
+    // the county layer only carries an exemption code; the extract has the descriptive type
     Exemption_Code: f.taxable === 0 ? 'EX' : null,
   })));
 
@@ -271,22 +273,24 @@ export async function installMockArcGIS(page, { parcels = makeParcels(), zones =
 
   // Zoning: hub items resolve to hosted layers; Tacoma has districts, the county layer and the
   // statewide atlas answer with no polygons here (incorporated area).
-  await page.route(/https:\/\/www\.arcgis\.com\/sharing\/rest\/content\/items\/([0-9a-f]+)/, (route, request) => {
+  await page.route(/https:\/\/www\.arcgis\.com\/sharing\/rest\/content\/items\/([0-9a-f]+)/, async (route, request) => {
     const id = request.url().match(/items\/([0-9a-f]+)/)[1];
     log.items.push(id);
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     const url = { [TACOMA_ZONING_ITEM]: TACOMA_ZONING_URL.replace(/\/0$/, ''), [PIERCE_ZONING_ITEM]: PIERCE_ZONING_URL.replace(/\/0$/, '') }[id];
     if (!url) return json(route, { error: { code: 400, message: 'Item does not exist or is inaccessible.' } }, 400);
     return json(route, { id, type: 'Feature Service', title: 'mock zoning', url });
   });
   await page.route(`${TACOMA_ZONING_URL}**`, handler('tacomaZoning', TACOMA_ZONING_URL, zoningLayerInfo('Zoning Districts 2025', 'Zoning', 'Zoning_Desc'), (z) => ({ OBJECTID: z.oid, Zoning: z.code, Zoning_Desc: z.desc }), { features: zones }));
-  await page.route(`${PIERCE_ZONING_URL}**`, handler('pierceZoning', PIERCE_ZONING_URL, zoningLayerInfo('Zoning and Land Use Designations', 'zon_cur_cd', 'Lu_des'), (z) => ({ OBJECTID: z.oid, zon_cur_cd: z.code, Lu_des: z.desc }), { features: [] }));
-  await page.route(`${WAZA_URL}**`, handler('waza', WAZA_URL, { ...zoningLayerInfo('WAZA_Prototype_Layers', 'ZoneID', 'ZoneName'), fields: [F('OBJECTID', 'esriFieldTypeOID'), F('Jurisdiction', 'esriFieldTypeString'), F('ZoneID', 'esriFieldTypeString'), F('ZoneName', 'esriFieldTypeString')] }, (z) => ({ OBJECTID: z.oid, Jurisdiction: 'Tacoma', ZoneID: z.code, ZoneName: z.desc }), { features: [] }));
+  await page.route(`${PIERCE_ZONING_URL}**`, handler('pierceZoning', PIERCE_ZONING_URL, zoningLayerInfo('Zoning and Land Use Designations', 'ZON_CUR_CD', 'ZON_CUR_NA'), (z) => ({ OBJECTID: z.oid, ZON_CUR_CD: z.code, ZON_CUR_NA: z.desc }), { features: countyZones }));
+  await page.route(`${WAZA_URL}**`, handler('waza', WAZA_URL, { ...zoningLayerInfo('WAZA_Prototype_Layers', 'ZoneID', 'ZoneName'), fields: [F('OBJECTID', 'esriFieldTypeOID'), F('Jurisdiction', 'esriFieldTypeString'), F('ZoneID', 'esriFieldTypeString'), F('ZoneName', 'esriFieldTypeString')] }, (z) => ({ OBJECTID: z.oid, Jurisdiction: 'Tacoma', ZoneID: z.code, ZoneName: z.desc }), { features: wazaZones }));
 
   // Weekly Pierce assessor extract published next to the page
   const extractRecords = makeExtract(parcels);
-  await page.route(/\/data\/assessor\/pierce\/(manifest\.json|shards\/[0-9A-Z]+\.json)$/, (route, request) => {
+  await page.route(/\/data\/assessor\/pierce\/(manifest\.json|shards\/[0-9A-Z]+\.json)$/, async (route, request) => {
     const url = request.url();
     log.extract.push(url);
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     if (!extract) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not built' });
     if (url.endsWith('manifest.json')) {
       return json(route, { generated: '2026-09-21T13:20:00.000Z', asOf: '2026-09-18T07:00:00.000Z', prefixLength: 4, shards: ['2000'], records: Object.keys(extractRecords).length, fields: { legal_owner: 'sale.txt Grantee on the most recent recorded deed' }, notes: 'mock extract' });

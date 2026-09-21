@@ -437,7 +437,13 @@ export function putEnrich(byId, k, attrs) {
 
 export function mergeAttrs(primary, extras) {
   const out = { ...primary, _sourceFields: { ...primary._sourceFields }, _notes: { ...(primary._notes || {}) } }; // keeps _rawCounty/_lookupCode
+  // Best priced sale seen across every source, so an unpriced latest transfer can always be
+  // qualified by the last market sale whatever order the enrichers arrive in.
+  let bestPriced = pricedOf(primary);
+  let explicitValid = has(primary.valid_sale_date);
   for (const extra of extras) {
+    const cand = pricedOf(extra);
+    if (cand && (!bestPriced || cand.date > bestPriced.date)) bestPriced = cand;
     const override = new Set(extra._override || []);
     const label = (k) => `${extra._sourceFields?.[k] || k} (${extra._sourceName})`;
     const saleKeys = new Set([...saleKeysOf(extra), ...VALID_SALE]);
@@ -466,18 +472,20 @@ export function mergeAttrs(primary, extras) {
         else out[k] = null;
         if (extra._notes?.[k]) out._notes[k] = extra._notes[k];
       }
+      explicitValid = has(extra.valid_sale_date);
       for (const k of VALID_SALE) {
         if (has(extra[k])) out[k] = extra[k];
         else delete out[k];
       }
-      // The previous latest sale becomes the "last market sale" when the new one is unpriced.
-      if (!(extra.sale_price > 0) && primary.sale_price > 0 && primary.sale_date && !has(out.valid_sale_date)) {
-        out.valid_sale_date = primary.sale_date;
-        out.valid_sale_price = primary.sale_price;
-      }
-    } else if (extra.sale_date && has(out.sale_date) && !(out.sale_price > 0) && extra.sale_price > 0 && !has(out.valid_sale_date)) {
-      out.valid_sale_date = extra.sale_date;
-      out.valid_sale_price = extra.sale_price;
+    }
+  }
+  if (!explicitValid) {
+    if (out.sale_date && !(out.sale_price > 0) && bestPriced && bestPriced.date !== out.sale_date) {
+      out.valid_sale_date = bestPriced.date;
+      out.valid_sale_price = bestPriced.price;
+    } else {
+      delete out.valid_sale_date;
+      delete out.valid_sale_price;
     }
   }
   return out;
@@ -808,7 +816,12 @@ export class ParcelService {
       const values = new Set();
       for (const p of prepared) {
         const v = source.joinValue ? source.joinValue(p.merged, p.f.properties || {}) : p.merged.parcel_id;
-        if (has(v)) values.add(String(v).trim());
+        if (!has(v)) continue;
+        const raw = String(v).trim();
+        values.add(raw);
+        // tables often store the number without the punctuation the parcel layer uses
+        const bare = normalizeParcelId(raw);
+        if (bare && bare !== raw.toUpperCase()) values.add(bare);
       }
       const list = [...values];
       const byId = new Map();
@@ -851,6 +864,7 @@ export class ParcelService {
       }
       const byId = new Map();
       let rows = 0;
+      const failedShards = [];
       await Promise.all([...prefixes].map(async (prefix) => {
         if (available && !available.has(prefix)) return;
         let shard;
@@ -859,7 +873,8 @@ export class ParcelService {
         } catch (err) {
           if (isAbort(err)) throw err;
           if (err?.code === 404) return; // no parcels with this prefix
-          throw err;
+          failedShards.push(`${prefix}: ${errText(err)}`); // keep the other shards' rows
+          return;
         }
         const recs = shard.records || shard;
         for (const [id, rec] of Object.entries(recs)) {
@@ -874,9 +889,10 @@ export class ParcelService {
       let joined = 0;
       for (const p of prepared) if (byId.has(normalizeParcelId(p.merged.parcel_id))) joined += 1;
       const url = source.url || (manifest.sourceUrl || st.manifest);
+      const note = failedShards.length ? `${failedShards.length} of ${prefixes.size} shard file(s) could not be loaded (${failedShards.slice(0, 3).join('; ')}); parcels in them show no deed data.` : (manifest.notes || source.notes || '');
       report({
         provider: provider.key, providerName: provider.name, source: source.name, url, ok: true, role: 'static', count: rows, joined,
-        generated: manifest.generated || '', asOf: manifest.asOf || '', county, confidence: source.confidence, fieldMap: manifest.fields || {}, note: manifest.notes || source.notes || '',
+        generated: manifest.generated || '', asOf: manifest.asOf || '', county, confidence: source.confidence, fieldMap: manifest.fields || {}, note, failedShards: failedShards.length,
       });
       return { source, byId, prep: null };
     } catch (err) {
@@ -900,6 +916,9 @@ export class ParcelService {
     // answers, so they run alongside the primary query.
     const zoningJob = this.fetchZoning(provider, zoningSources, bbox, county, report, signal);
     const earlyJobs = provider.sources.filter((s) => isBBoxEnrich(s) && !s.geometry).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
+    // These are awaited later; a cancellation that rejects them first must not surface as an
+    // unhandled rejection in the meantime.
+    for (const p of [zoningJob, ...earlyJobs]) p.catch(() => {});
     const settle = () => Promise.allSettled([zoningJob, ...earlyJobs]);
 
     let primary = null;

@@ -408,6 +408,8 @@ const PIERCE_ASSESSOR_EXTRACT = {
   publisher: 'Pierce County Assessor-Treasurer Data Downloads, compiled weekly for this map',
   url: 'https://www.piercecountywa.gov/736/Data-Downloads',
   static: { manifest: 'data/assessor/pierce/manifest.json', shard: 'data/assessor/pierce/shards/{prefix}.json', prefixLength: 4 },
+  // the extract's exemption is the descriptive type; the county layer only has a code
+  override: ['exemption'],
   notesFor: { legal_owner: 'grantee on the most recent recorded deed in the Assessor-Treasurer sale file' },
   notes: 'Last sale date, price, deed type, grantor and grantee for every parcel (full recorded history), business name, exemption type and current-year values. No public Pierce County bulk table carries taxpayer names.',
 };

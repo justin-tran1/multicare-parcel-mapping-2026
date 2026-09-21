@@ -1805,7 +1805,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     owner_address: {
       include: /(taxpayer|owner|ownr|mail).*?(addr|address|street|line)|(addr|address).*?(taxpayer|owner|mail)/i,
-      exclude: /(city|state|zip)/i
+      // the title / deed holder's mailing line is not the taxpayer's address
+      exclude: /(city|state|zip|title|legal|deed|grantee)/i
     },
     situs_address: {
       include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr|physical_?addr)/i,
@@ -1932,31 +1933,45 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   var VALUE_ATTRS = /* @__PURE__ */ new Set(["taxable_value", "land_value", "improvement_value", "total_value", "land_acres", "land_sqft", "sale_price"]);
   function toISODate(v, { epochMs = false } = {}) {
     if (v === null || v === void 0 || v === "") return null;
+    const maxYear = (/* @__PURE__ */ new Date()).getUTCFullYear() + 1;
+    const yearOk = (y) => y >= 1800 && y <= maxYear;
+    const ymd = (y, mo, d) => {
+      if (!yearOk(y) || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+      if (y === 1900 && mo === 1 && d === 1) return null;
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    };
+    const fromDate = (dt) => {
+      if (Number.isNaN(dt.getTime())) return null;
+      return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+    };
     if (typeof v === "number") {
       if (!Number.isFinite(v)) return null;
-      if (epochMs) return new Date(v).toISOString().slice(0, 10);
-      if (v > 1e11) return new Date(v).toISOString().slice(0, 10);
-      if (v > 1e9) return new Date(v * 1e3).toISOString().slice(0, 10);
-      if (v >= 18000101 && v <= 21001231) return `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6, 8)}`;
-      if (v >= 1800 && v <= 2100) return `${v}`;
+      if (epochMs) return fromDate(new Date(v));
+      if (Math.abs(v) >= 1e11) return fromDate(new Date(v));
+      if (v >= 3e8) return fromDate(new Date(v * 1e3));
+      if (v >= 18000101 && v <= 21001231) return ymd(Math.floor(v / 1e4), Math.floor(v / 100) % 100, v % 100);
+      if (yearOk(v) && Number.isInteger(v)) return `${v}`;
       return null;
     }
     const s = String(v).trim();
     if (!s) return null;
     let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+    m = s.match(/^(\d{4})-(\d{2})$/);
+    if (m) return yearOk(Number(m[1])) && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${m[1]}-${m[2]}` : null;
     m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+    if (m) return ymd(Number(m[3]), Number(m[1]), Number(m[2]));
     m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
-    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-    m = s.match(/^([A-Za-z]{3})-(\d{4})$/);
+    if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+    m = s.match(/^([A-Za-z]{3,9})[-\s](\d{4})$/);
     if (m) {
-      const mi = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1].toLowerCase());
-      if (mi >= 0) return `${m[2]}-${String(mi + 1).padStart(2, "0")}`;
+      const mi = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1].slice(0, 3).toLowerCase());
+      if (mi >= 0 && yearOk(Number(m[2]))) return `${m[2]}-${String(mi + 1).padStart(2, "0")}`;
+      return null;
     }
-    if (/^\d{4}$/.test(s)) return s;
-    const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    if (/^\d{4}$/.test(s)) return yearOk(Number(s)) ? s : null;
+    if (/^\d+(\.\d+)?$/.test(s)) return toISODate(Number(s), { epochMs });
+    return fromDate(new Date(s));
   }
   function resolveFieldMap(layerInfo, candidates = {}) {
     const fields = layerInfo.fields || [];
@@ -2373,6 +2388,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     publisher: "Pierce County Assessor-Treasurer Data Downloads, compiled weekly for this map",
     url: "https://www.piercecountywa.gov/736/Data-Downloads",
     static: { manifest: "data/assessor/pierce/manifest.json", shard: "data/assessor/pierce/shards/{prefix}.json", prefixLength: 4 },
+    // the extract's exemption is the descriptive type; the county layer only has a code
+    override: ["exemption"],
     notesFor: { legal_owner: "grantee on the most recent recorded deed in the Assessor-Treasurer sale file" },
     notes: "Last sale date, price, deed type, grantor and grantee for every parcel (full recorded history), business name, exemption type and current-year values. No public Pierce County bulk table carries taxpayer names."
   };
@@ -3725,7 +3742,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   function mergeAttrs(primary, extras) {
     const out = { ...primary, _sourceFields: { ...primary._sourceFields }, _notes: { ...primary._notes || {} } };
+    let bestPriced = pricedOf(primary);
+    let explicitValid = has(primary.valid_sale_date);
     for (const extra of extras) {
+      const cand = pricedOf(extra);
+      if (cand && (!bestPriced || cand.date > bestPriced.date)) bestPriced = cand;
       const override = new Set(extra._override || []);
       const label = (k) => `${extra._sourceFields?.[k] || k} (${extra._sourceName})`;
       const saleKeys = /* @__PURE__ */ new Set([...saleKeysOf(extra), ...VALID_SALE]);
@@ -3752,17 +3773,20 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           else out[k] = null;
           if (extra._notes?.[k]) out._notes[k] = extra._notes[k];
         }
+        explicitValid = has(extra.valid_sale_date);
         for (const k of VALID_SALE) {
           if (has(extra[k])) out[k] = extra[k];
           else delete out[k];
         }
-        if (!(extra.sale_price > 0) && primary.sale_price > 0 && primary.sale_date && !has(out.valid_sale_date)) {
-          out.valid_sale_date = primary.sale_date;
-          out.valid_sale_price = primary.sale_price;
-        }
-      } else if (extra.sale_date && has(out.sale_date) && !(out.sale_price > 0) && extra.sale_price > 0 && !has(out.valid_sale_date)) {
-        out.valid_sale_date = extra.sale_date;
-        out.valid_sale_price = extra.sale_price;
+      }
+    }
+    if (!explicitValid) {
+      if (out.sale_date && !(out.sale_price > 0) && bestPriced && bestPriced.date !== out.sale_date) {
+        out.valid_sale_date = bestPriced.date;
+        out.valid_sale_price = bestPriced.price;
+      } else {
+        delete out.valid_sale_date;
+        delete out.valid_sale_price;
       }
     }
     return out;
@@ -4068,7 +4092,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         const values = /* @__PURE__ */ new Set();
         for (const p of prepared) {
           const v = source.joinValue ? source.joinValue(p.merged, p.f.properties || {}) : p.merged.parcel_id;
-          if (has(v)) values.add(String(v).trim());
+          if (!has(v)) continue;
+          const raw = String(v).trim();
+          values.add(raw);
+          const bare = normalizeParcelId(raw);
+          if (bare && bare !== raw.toUpperCase()) values.add(bare);
         }
         const list = [...values];
         const byId = /* @__PURE__ */ new Map();
@@ -4110,6 +4138,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         }
         const byId = /* @__PURE__ */ new Map();
         let rows = 0;
+        const failedShards = [];
         await Promise.all([...prefixes].map(async (prefix) => {
           if (available && !available.has(prefix)) return;
           let shard;
@@ -4118,7 +4147,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           } catch (err) {
             if (isAbort(err)) throw err;
             if (err?.code === 404) return;
-            throw err;
+            failedShards.push(`${prefix}: ${errText(err)}`);
+            return;
           }
           const recs = shard.records || shard;
           for (const [id, rec] of Object.entries(recs)) {
@@ -4133,6 +4163,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         let joined = 0;
         for (const p of prepared) if (byId.has(normalizeParcelId(p.merged.parcel_id))) joined += 1;
         const url = source.url || (manifest.sourceUrl || st.manifest);
+        const note = failedShards.length ? `${failedShards.length} of ${prefixes.size} shard file(s) could not be loaded (${failedShards.slice(0, 3).join("; ")}); parcels in them show no deed data.` : manifest.notes || source.notes || "";
         report({
           provider: provider.key,
           providerName: provider.name,
@@ -4147,7 +4178,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           county,
           confidence: source.confidence,
           fieldMap: manifest.fields || {},
-          note: manifest.notes || source.notes || ""
+          note,
+          failedShards: failedShards.length
         });
         return { source, byId, prep: null };
       } catch (err) {
@@ -4172,6 +4204,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const isBBoxEnrich = (s) => s.enrich && !s.static && s.joinBy !== "ids";
       const zoningJob = this.fetchZoning(provider, zoningSources, bbox, county, report, signal);
       const earlyJobs = provider.sources.filter((s) => isBBoxEnrich(s) && !s.geometry).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
+      for (const p of [zoningJob, ...earlyJobs]) p.catch(() => {
+      });
       const settle = () => Promise.allSettled([zoningJob, ...earlyJobs]);
       let primary = null;
       let primaryPrep = null;

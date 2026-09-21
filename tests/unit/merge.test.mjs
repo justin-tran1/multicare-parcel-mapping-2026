@@ -48,6 +48,33 @@ test('merging a newer sale into the primary replaces the whole transaction, incl
   assert.equal(out2.valid_sale_date, '2020-01-01');
 });
 
+test('the last market sale is found whatever order the enrichers arrive in', () => {
+  const primary = { parcel_id: 'P1', owner: 'TAXPAYER', _sourceFields: {}, _notes: {} };
+  const priced = row({ parcel_id: 'P1', sale_date: '2020-01-01', sale_price: 500000, legal_owner: 'BUYER A' });
+  const unpriced = row({ parcel_id: 'P1', sale_date: '2024-05-01', sale_price: 0, legal_owner: 'BUYER A TRUST' });
+  for (const extras of [[priced, unpriced], [unpriced, priced]]) {
+    const out = mergeAttrs(primary, extras);
+    assert.equal(out.sale_date, '2024-05-01');
+    assert.equal(out.legal_owner, 'BUYER A TRUST');
+    assert.equal(out.valid_sale_date, '2020-01-01');
+    assert.equal(out.valid_sale_price, 500000);
+  }
+  // a priced latest sale needs no qualifier
+  const out = mergeAttrs(primary, [unpriced, row({ parcel_id: 'P1', sale_date: '2025-01-01', sale_price: 700000, legal_owner: 'BUYER B' })]);
+  assert.equal(out.valid_sale_date, undefined);
+  assert.equal(out.legal_owner, 'BUYER B');
+  // an explicit valid sale from the extract is kept as supplied
+  const ext = row({ parcel_id: 'P1', sale_date: '2024-05-01', sale_price: 0, legal_owner: 'T', valid_sale_date: '2010-03-02', valid_sale_price: 250000, sale_valid: 0, sale_exclude_reason: 'Living Trust' });
+  const out2 = mergeAttrs(primary, [priced, ext]);
+  assert.equal(out2.valid_sale_date, '2010-03-02');
+  assert.equal(out2.sale_exclude_reason, 'Living Trust');
+  // sale metadata never outlives the sale it describes
+  const out3 = mergeAttrs({ ...primary, sale_date: '2026-02-10', sale_price: 900000 }, [ext]);
+  assert.equal(out3.sale_date, '2026-02-10');
+  assert.equal(out3.sale_exclude_reason, undefined);
+  assert.equal(out3.sale_valid, undefined);
+});
+
 test('zoning, sale price and exemption heuristics reject look-alike fields', () => {
   const mk = (fields) => ({ fields: fields.map((f) => (typeof f === 'string' ? { name: f, alias: f, type: 'esriFieldTypeString', length: 50 } : { alias: f.name, type: 'esriFieldTypeString', length: 50, ...f })) });
   let { map } = resolveFieldMap(mk(['PARCEL_NO', 'OWNER_NAME', 'TAX_ZONE', 'UTM_ZONE', 'FLOOD_ZONE', 'TAXZONE', 'ZONE_ACRES']));

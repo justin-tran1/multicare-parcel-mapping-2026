@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readZipEntries, parsePipe, buildRecords, findMultiCare, writeOutput, LAYOUTS, toISO, decodeCountyText } from '../../scripts/build-pierce-assessor.mjs';
+import { readZipEntries, parsePipe, buildRecords, findMultiCare, writeOutput, LAYOUTS, toISO, decodeCountyText, checkLayout, main } from '../../scripts/build-pierce-assessor.mjs';
 
 /** Minimal ZIP writer (deflate) mirroring the county's single-file archives. */
 function makeZip(name, content) {
@@ -70,6 +70,36 @@ test('sale rows for parcel numbers absent from the tax roll are skipped', () => 
   assert.equal(records.size, 1);
   assert.equal(stats.saleRowsSkipped, 1);
   assert.equal(records.get('0220163009').legal_owner, 'B');
+});
+
+test('a layout change (more than 1% malformed rows) aborts the build with a pointer to the metadata PDF', () => {
+  assert.doesNotThrow(() => checkLayout('sale', 5, 1000));
+  assert.throws(() => checkLayout('sale', 20, 1000), /layout may have changed.*sale\.pdf/);
+});
+
+test('end to end from local files: Windows-1252 names survive into the shard and the manifest records the inputs', async () => {
+  const from = await mkdtemp(path.join(os.tmpdir(), 'pierce-from-'));
+  const out = await mkdtemp(path.join(os.tmpdir(), 'pierce-out-'));
+  await writeFile(path.join(from, 'tax_account.txt'), Buffer.from(`${taxRow('0220163009')}\r\n${taxRow('2009400010')}\r\n`, 'latin1'));
+  await writeFile(path.join(from, 'appraisal_account.txt'), Buffer.from(`${apprRow('0220163009')}\r\n`, 'latin1'));
+  const sale = saleRow({ etn: '202006150003', parcel_count: '1', parcel_number: '2009400010', sale_date: '06/15/2020', sale_price: '400000.00', deed_type: 'Statutory Warranty Deed', grantor: 'SMITH JOHN', grantee: 'MUÑOZ MARÍA', valid_invalid: '1', confirmed_unconfirmed: '1', exclude_reason: '', improved_vacant: 'Improved', appraisal_account_type: 'Residential' });
+  await writeFile(path.join(from, 'sale.zip'), makeZip('sale.txt', `${sale}\r\n`)); // makeZip encodes latin1: Ñ = 0xD1, Í = 0xCD
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await main(['--from', from, '--out', out, '--prefix-length', '4']);
+  } finally {
+    console.log = log;
+  }
+  const manifest = JSON.parse(await readFile(path.join(out, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.records, 2);
+  assert.deepEqual(manifest.shards, ['0220', '2009']);
+  assert.equal(manifest.files.sale.rows, 1);
+  assert.equal(manifest.files.tax_account.columns, 28);
+  assert.ok(manifest.asOf, 'asOf comes from the file dates');
+  const shard = JSON.parse(await readFile(path.join(out, 'shards', '2009.json'), 'utf8'));
+  assert.equal(shard['2009400010'].legal_owner, 'MUÑOZ MARÍA');
+  assert.equal(shard['2009400010'].sale_price, 400000);
 });
 
 test('pipe parser assigns columns positionally and counts malformed rows', () => {
