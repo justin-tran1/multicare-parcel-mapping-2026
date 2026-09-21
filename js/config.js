@@ -56,31 +56,11 @@ export const MAX_RING_RADIUS_M = 8047; // 5 miles: keeps result sets manageable
 // Published site; the standalone (file://) build loads the weekly assessor extracts from here.
 export const SITE_BASE = 'https://justin-tran1.github.io/multicare-parcel-mapping-2026/';
 
+// Only basemaps that need no API key or account: OpenStreetMap's public tile server and the
+// U.S. Geological Survey's National Map (public domain). CARTO and Esri basemaps require an
+// API key / subscription for use in a product and were removed. USGS tiles stop at zoom 16
+// and are upscaled beyond that so parcels can still be inspected at zoom 17-19.
 export const BASEMAPS = [
-  {
-    id: 'carto-light',
-    name: 'Light (CARTO Positron)',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    options: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  },
-  {
-    id: 'carto-light-nolabels',
-    name: 'Light, no labels (CARTO)',
-    url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
-    options: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  },
-  {
-    id: 'carto-voyager',
-    name: 'Streets (CARTO Voyager)',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    options: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  },
-  {
-    id: 'carto-dark',
-    name: 'Dark (CARTO Dark Matter)',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    options: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  },
   {
     id: 'osm',
     name: 'OpenStreetMap',
@@ -88,46 +68,26 @@ export const BASEMAPS = [
     options: { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
   },
   {
-    id: 'esri-gray',
-    name: 'Light Gray Canvas (Esri)',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-    options: { maxZoom: 16, attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ' },
-    overlay: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
-  },
-  {
-    id: 'esri-streets',
-    name: 'Streets (Esri)',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    options: { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012' },
-  },
-  {
-    id: 'esri-imagery',
-    name: 'Aerial imagery (Esri)',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    options: { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community' },
-    overlay: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-  },
-  {
-    id: 'esri-topo',
-    name: 'Topographic (Esri)',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    options: { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community' },
+    id: 'usgs-topo',
+    name: 'Topographic (USGS)',
+    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+    options: { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' },
   },
   {
     id: 'usgs-imagery',
     name: 'Aerial imagery (USGS)',
     url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
-    options: { maxZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' },
+    options: { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' },
   },
   {
-    id: 'usgs-topo',
-    name: 'Topographic (USGS)',
-    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-    options: { maxZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' },
+    id: 'usgs-imagery-topo',
+    name: 'Aerial imagery with labels (USGS)',
+    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
+    options: { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' },
   },
 ];
 
-export const DEFAULT_BASEMAP = 'carto-light';
+export const DEFAULT_BASEMAP = 'osm';
 
 // Washington State bounding box (WGS84) used to warn when a location is out of coverage.
 export const WA_BBOX = [-124.85, 45.54, -116.91, 49.01];

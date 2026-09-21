@@ -1173,75 +1173,31 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   var SITE_BASE = "https://justin-tran1.github.io/multicare-parcel-mapping-2026/";
   var BASEMAPS = [
     {
-      id: "carto-light",
-      name: "Light (CARTO Positron)",
-      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      options: { subdomains: "abcd", maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' }
-    },
-    {
-      id: "carto-light-nolabels",
-      name: "Light, no labels (CARTO)",
-      url: "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
-      options: { subdomains: "abcd", maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' }
-    },
-    {
-      id: "carto-voyager",
-      name: "Streets (CARTO Voyager)",
-      url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-      options: { subdomains: "abcd", maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' }
-    },
-    {
-      id: "carto-dark",
-      name: "Dark (CARTO Dark Matter)",
-      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      options: { subdomains: "abcd", maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' }
-    },
-    {
       id: "osm",
       name: "OpenStreetMap",
       url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       options: { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }
     },
     {
-      id: "esri-gray",
-      name: "Light Gray Canvas (Esri)",
-      url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-      options: { maxZoom: 16, attribution: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ" },
-      overlay: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-    },
-    {
-      id: "esri-streets",
-      name: "Streets (Esri)",
-      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-      options: { maxZoom: 19, attribution: "Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012" }
-    },
-    {
-      id: "esri-imagery",
-      name: "Aerial imagery (Esri)",
-      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      options: { maxZoom: 19, attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community" },
-      overlay: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-    },
-    {
-      id: "esri-topo",
-      name: "Topographic (Esri)",
-      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-      options: { maxZoom: 19, attribution: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community" }
+      id: "usgs-topo",
+      name: "Topographic (USGS)",
+      url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+      options: { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' }
     },
     {
       id: "usgs-imagery",
       name: "Aerial imagery (USGS)",
       url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
-      options: { maxZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' }
+      options: { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' }
     },
     {
-      id: "usgs-topo",
-      name: "Topographic (USGS)",
-      url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
-      options: { maxZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' }
+      id: "usgs-imagery-topo",
+      name: "Aerial imagery with labels (USGS)",
+      url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}",
+      options: { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>' }
     }
   ];
-  var DEFAULT_BASEMAP = "carto-light";
+  var DEFAULT_BASEMAP = "osm";
   var WA_BBOX = [-124.85, 45.54, -116.91, 49.01];
   var DISCLAIMER = "\xA9 " + (/* @__PURE__ */ new Date()).getFullYear() + " CBRE, Inc. All rights reserved. This information has been obtained from sources believed reliable, but has not been verified for accuracy or completeness. You should conduct a careful, independent investigation of the property and verify all information. Any reliance on this information is solely at your own risk. Parcel geometry and attributes are served live from Washington county and city GIS records and reflect the publishing agency\u2019s most recent update.";
 
