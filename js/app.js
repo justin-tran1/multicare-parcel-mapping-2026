@@ -966,8 +966,10 @@ function wireControls() {
   $('#btn-print').addEventListener('click', () => {
     const { title, subtitle } = currentTitles();
     const counties = state.study.counties.join(', ');
-    const sources = [...new Set(state.study.statuses.filter((s) => s.ok).map((s) => s.source))].join('; ');
-    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.` });
+    const byRole = (roles) => [...new Set(state.study.statuses.filter((s) => s.ok && s.count !== 0 && roles.includes(s.role || 'primary')).map((s) => s.source))].join('; ');
+    const sources = byRole(['primary', 'enrich', 'static']);
+    const zoning = [...new Set(state.study.records.map((r) => r.zoningSource).filter((z) => z && z !== 'assessor'))].join('; ');
+    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
 }
