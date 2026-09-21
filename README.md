@@ -42,9 +42,11 @@ self-contained file that can be emailed.
   deed type, whether the assessor treats it as an arm's-length market sale) comes from the
   county sales layer or, for Pierce County, the weekly Assessor-Treasurer extract built by
   the deployment workflow. Popups show every field with its source.
-- **Basemaps**: CARTO Positron (light, matches the reference), CARTO no-labels, Voyager and
-  Dark Matter, OpenStreetMap, Esri Light Gray Canvas, Streets, Imagery and Topographic,
-  USGS Imagery and Topo. Switch from the sidebar or the map's layer control.
+- **Basemaps**: only services that need no API key or account: OpenStreetMap (default) and
+  the USGS National Map topographic, aerial imagery, and imagery-with-labels layers (public
+  domain; upscaled beyond zoom 16). CARTO and Esri basemaps, which require a key or
+  subscription for use in a product, are not offered. Switch from the sidebar or the map's
+  layer control.
 - **Exhibit**: *Print exhibit* reflows the page into a 17 x 11 in landscape layout with a
   CBRE-green header (editable title and subtitle), the map, legend, the numbered table
   (split into columns for long lists), disclaimer, and wordmark. Use the browser's *Save as
@@ -232,7 +234,7 @@ tests/                node:test unit tests and Playwright e2e tests with mocked 
 
 ## Licence and attribution
 
-Application code © CBRE. Map data © OpenStreetMap contributors; basemap tiles © CARTO, Esri,
-USGS as attributed on the map. Parcel data is published by the respective Washington
+Application code © CBRE. Map data © OpenStreetMap contributors; USGS National Map tiles are
+public domain, as attributed on the map. Parcel data is published by the respective Washington
 counties, cities, and the Washington State Office of the Chief Information Officer and is
 subject to each agency's terms. Leaflet is BSD-2-Clause licensed.
