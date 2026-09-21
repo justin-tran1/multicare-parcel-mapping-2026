@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { installMockArcGIS, makeParcels, makeZones, ALLENMORE, TACOMA_URL, PIERCE_URL, TACOMA_ZONING_URL } from './fixtures/mock-arcgis.mjs';
+import { installMockArcGIS, makeParcels, makeZones, ALLENMORE, TACOMA_URL, PIERCE_URL, TACOMA_ZONING_URL, TACOMA_DART_URL } from './fixtures/mock-arcgis.mjs';
+
+// both Tacoma zoning sources (hub layer and DART map service) down
+const TACOMA_ZONING_DOWN = new Set([TACOMA_ZONING_URL, `${TACOMA_DART_URL}/3`]);
 import { makeProjector, projectPolygons, distanceFromOriginToPolygons, toMeters } from '../../js/geometry.js';
 
 const parcels = makeParcels();
@@ -72,7 +75,8 @@ test.describe('radius study', () => {
     expect(errors, `page errors: ${errors.join('\n')}`).toEqual([]);
     expect(log.tacoma.some((r) => r.url.includes('/query'))).toBe(true);
     expect(log.pierce.some((r) => r.params.returnGeometry === 'false')).toBe(true);
-    expect(log.items).toContain('e71809b0bb4e4365a478a46117583daf');
+    expect(log.searches.some((q) => /Zoning Districts 2025/.test(q))).toBe(true);
+    expect(log.items).toContain('068b1c905eb1465ab61812e9a8d1032e');
     expect(log.extract.some((u) => u.endsWith('manifest.json'))).toBe(true);
     expect(log.extract.some((u) => u.endsWith('shards/2000.json'))).toBe(true);
     // city layers elsewhere in the county are skipped by extent, never requested
@@ -193,7 +197,7 @@ test.describe('radius study', () => {
     const wazaZones = makeZones().map((z) => ({ ...z, code: `ATLAS-${z.code}`, desc: `Atlas ${z.desc}` }));
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await installMockArcGIS(page, { parcels, fail: new Set([TACOMA_ZONING_URL]), countyZones, wazaZones });
+    await installMockArcGIS(page, { parcels, fail: TACOMA_ZONING_DOWN, countyZones, wazaZones });
     await page.goto(hashFor());
     const first = page.locator('table.parcels tbody tr').first();
     await expect(first).toBeVisible({ timeout: 20000 });
@@ -207,9 +211,21 @@ test.describe('radius study', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a county placeholder polygon for an incorporated city is not zoning; the atlas applies instead', async ({ page }) => {
+    // observed live: the county layer covers Tacoma with one "TACO" polygon
+    const countyZones = [{ ...makeZones()[0], oid: 9, code: 'TACO', desc: 'City of Tacoma' }]; // the strip through the centre parcel
+    const wazaZones = makeZones().map((z) => ({ ...z, code: `ATLAS-${z.code}` }));
+    await installMockArcGIS(page, { parcels, fail: TACOMA_ZONING_DOWN, countyZones, wazaZones });
+    await page.goto(hashFor());
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first).toBeVisible({ timeout: 20000 });
+    await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('ATLAS-HMX');
+    await expect(page.locator('#sources')).toContainText('1 city placeholder skipped');
+  });
+
   test('the statewide zoning atlas covers parcels when no jurisdiction layer does', async ({ page }) => {
     const wazaZones = makeZones().map((z) => ({ ...z, code: `ATLAS-${z.code}` }));
-    await installMockArcGIS(page, { parcels, fail: new Set([TACOMA_ZONING_URL]), wazaZones });
+    await installMockArcGIS(page, { parcels, fail: TACOMA_ZONING_DOWN, wazaZones });
     await page.goto(hashFor());
     const first = page.locator('table.parcels tbody tr').first();
     await expect(first).toBeVisible({ timeout: 20000 });
@@ -297,7 +313,7 @@ test.describe('radius study', () => {
     await expect(page.locator('#sources')).toContainText('TAXPAYERNAME');
     // metadata for the Tacoma layer, the zoning hub item and its layer were fetched exactly once despite the cancellations
     expect(log.tacoma.filter((r) => !r.url.includes('/query')).length).toBe(1);
-    expect(log.items.filter((id) => id === 'e71809b0bb4e4365a478a46117583daf').length).toBe(1);
+    expect(log.searches.length).toBe(1);
     expect(log.tacomaZoning.filter((r) => !r.url.includes('/query')).length).toBe(1);
     expect(errors.filter((e) => !/favicon|net::ERR/.test(e)), `page errors: ${errors.join('\n')}`).toEqual([]);
   });

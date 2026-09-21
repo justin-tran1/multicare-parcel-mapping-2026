@@ -1,6 +1,6 @@
 {
   "note": "Owner names from the CBRE 'MultiCare Allenmore Hospital | Tacoma, WA - Properties within 250 yards' reference exhibit, in exhibit ID order (IDs 1-60 and 63). Used by the unit tests and by scripts/validate-allenmore.mjs to check the live study.",
-  "center": { "address": "1901 S Union Ave, Tacoma, WA 98405", "lat": 47.2418, "lon": -122.4718 },
+  "center": { "address": "1901 S Union Ave, Tacoma, WA 98405", "lat": 47.2455, "lon": -122.4771, "note": "approximate campus centre used only when geocoding is unavailable; the validation script geocodes the address first" },
   "radius": { "value": 250, "unit": "yd" },
   "multicare": { "owned": [31, 32], "joint_venture": [16] },
   "owners": [

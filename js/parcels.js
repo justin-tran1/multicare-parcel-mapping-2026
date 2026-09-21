@@ -48,21 +48,49 @@ function withSignal(promise, signal) {
 const itemUrlCache = new Map();
 
 function sourceKey(source) {
-  return source.url || (source.item ? `item:${source.item.portal || ''}${source.item.id}/${source.item.layer ?? 0}` : source.id);
+  if (source.url && !source.layerMatch) return source.url;
+  if (source.url) return `${source.url}#${source.layerMatch}`;
+  if (source.item?.id) return `item:${source.item.portal || ''}${source.item.id}/${source.item.layer ?? 0}`;
+  if (source.item?.query) return `search:${source.item.portal || ''}${source.item.query}/${source.item.layer ?? 0}`;
+  return source.id;
 }
 
+const validServiceUrl = (url) => /^https:\/\/[^\s"'<>]+$/i.test(url);
+
+/**
+ * Resolves a source to a concrete layer URL: a direct url, a portal item (by id or by a
+ * portal search when the id is not stable), and optionally a layer within a map service
+ * chosen by name (`layerMatch`) when the layer index is not documented.
+ */
 async function resolveSourceUrl(source) {
-  if (source.url) return source.url;
-  if (!source.item?.id) throw new ArcGISError('Source has neither a layer URL nor a portal item id', { code: 'config' });
-  const { id, layer = 0, portal = 'https://www.arcgis.com' } = source.item;
-  const key = `${portal}|${id}|${layer}`;
+  if (source.url && !source.layerMatch) return source.url;
+  const key = sourceKey(source);
   if (!itemUrlCache.has(key)) {
     const p = (async () => {
-      const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`, { timeoutMs: 20000 });
-      if (!item?.url) throw new ArcGISError('Portal item has no service URL', { code: 'item', url: `${portal}/home/item.html?id=${id}` });
-      let url = String(item.url).trim().replace(/\/+$/, '');
-      if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) throw new ArcGISError('Portal item URL is not an https service URL', { code: 'item', url: `${portal}/home/item.html?id=${id}` });
-      if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
+      let url = source.url ? String(source.url).trim().replace(/\/+$/, '') : '';
+      const { layer = 0, portal = 'https://www.arcgis.com' } = source.item || {};
+      if (!url && source.item?.id) {
+        const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(source.item.id)}?f=json`, { timeoutMs: 20000 });
+        if (!item?.url) throw new ArcGISError('Portal item has no service URL', { code: 'item', url: `${portal}/home/item.html?id=${source.item.id}` });
+        url = String(item.url).trim().replace(/\/+$/, '');
+      } else if (!url && source.item?.query) {
+        // Hub datasets whose item id is not published: search the portal and take the first
+        // feature service whose title / owner matches.
+        const res = await fetchJson(`${portal}/sharing/rest/search?q=${encodeURIComponent(source.item.query)}&num=25&sortField=modified&sortOrder=desc&f=json`, { timeoutMs: 20000 });
+        const match = source.item.match ? new RegExp(source.item.match, 'i') : null;
+        const hit = (res?.results || []).find((r) => r.url && /Server\/?$/i.test(String(r.url)) && (!match || match.test(`${r.title || ''} | ${r.owner || ''} | ${r.snippet || ''}`)));
+        if (!hit) throw new ArcGISError(`No portal item matched "${source.item.query}"`, { code: 'item' });
+        url = String(hit.url).trim().replace(/\/+$/, '');
+      } else if (!url) throw new ArcGISError('Source has neither a layer URL nor a portal item', { code: 'config' });
+      if (!validServiceUrl(url)) throw new ArcGISError('Portal item URL is not an https service URL', { code: 'item' });
+      if (source.layerMatch) {
+        // a map/feature service root: pick the layer by name
+        const root = await fetchJson(`${url}?f=json`, { timeoutMs: 20000 });
+        const re = new RegExp(source.layerMatch, 'i');
+        const found = (root?.layers || []).find((l) => re.test(l.name || ''));
+        if (!found) throw new ArcGISError(`No layer matching /${source.layerMatch}/ in the service`, { code: 'item', url });
+        url = `${url}/${found.id}`;
+      } else if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
       return url;
     })();
     itemUrlCache.set(key, p);
@@ -79,7 +107,10 @@ async function prepareSource(source, { signal } = {}) {
     const p = (async () => {
       const url = await resolveSourceUrl(source);
       // Sources are shared registry objects: remember the resolved URL for queries and reports.
-      if (!source.url) source.url = url;
+      if (!source.url || source.layerMatch) {
+        source.url = url;
+        delete source.layerMatch;
+      }
       const info = await getLayerInfo(url);
       const { map, how } = resolveFieldMap(info, source.fields || {});
       const missingComputed = {};
@@ -761,20 +792,27 @@ export class ParcelService {
         if (!fm.zoning) throw new ArcGISError('No zoning code field found on this layer', { url: source.url, code: 'schema' });
         const fc = await queryFeatures(source.url, { bbox: area, info: prep.info, signal, outFields: [fm.zoning, fm.zoning_description, source.jurisdictionField].filter(Boolean) });
         const exclude = source.exclude ? new RegExp(source.exclude, 'i') : null;
+        const excludeDesc = source.excludeDescription ? new RegExp(source.excludeDescription, 'i') : null;
         const features = [];
+        let placeholders = 0;
         for (const f of fc.features) {
           if (!f.geometry) continue;
           const props = f.properties || {};
           const code = cleanText(getField(props, fm.zoning));
-          if (!code || (exclude && exclude.test(code))) continue;
           let description = cleanText(getField(props, fm.zoning_description));
           if (!description) description = decodeDomain(prep, fm.zoning, getField(props, fm.zoning)) || '';
+          // County layers mask incorporated cities with a placeholder polygon (e.g. "TACO" /
+          // "City of Tacoma"): those are not zoning and must fall through to the city layer or atlas.
+          if (!code || (exclude && exclude.test(code)) || (excludeDesc && excludeDesc.test(description))) {
+            if (code) placeholders += 1;
+            continue;
+          }
           if (description === code) description = '';
           const jurisdiction = source.jurisdictionField ? cleanText(getField(props, source.jurisdictionField)) : '';
           features.push({ geometry: f.geometry, bbox: geometryBBox(f.geometry), code, description, jurisdiction });
         }
         const set = { source, features, fieldMap: fm, assigned: 0 };
-        report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: 'zoning', count: features.length, truncated: fc.truncated, fieldMap: fm, county, confidence: source.confidence, jurisdiction: source.jurisdiction || '' });
+        report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: 'zoning', count: features.length, placeholders, truncated: fc.truncated, fieldMap: fm, county, confidence: source.confidence, jurisdiction: source.jurisdiction || '' });
         return set;
       } catch (err) {
         if (isAbort(err) || signal?.aborted) throw err;

@@ -70,11 +70,18 @@ export async function main(argv = process.argv.slice(2)) {
   const reference = JSON.parse(await readFile(path.join(root, 'data/reference_allenmore.json'), 'utf8'));
   const counties = JSON.parse(await readFile(path.join(root, 'data/wa_counties.json'), 'utf8'));
 
-  let center = { lat: reference.center.lat, lon: reference.center.lon, label: reference.center.address };
-  if (args.address) {
-    center = await censusGeocode(args.address);
-    console.log(`Geocoded "${args.address}" -> ${center.lat}, ${center.lon} (${center.label})`);
-  } else if (Number.isFinite(args.lat) && Number.isFinite(args.lon)) center = { lat: args.lat, lon: args.lon, label: `${args.lat}, ${args.lon}` };
+  let center = { lat: reference.center.lat, lon: reference.center.lon, label: `${reference.center.address} (stored approximate centre)` };
+  if (Number.isFinite(args.lat) && Number.isFinite(args.lon)) center = { lat: args.lat, lon: args.lon, label: `${args.lat}, ${args.lon}` };
+  else {
+    // Geocode the reference address exactly as the app would; fall back to the stored centre.
+    const address = args.address || reference.center.address;
+    try {
+      center = await censusGeocode(address);
+      console.log(`Geocoded "${address}" -> ${center.lat}, ${center.lon} (${center.label})`);
+    } catch (err) {
+      console.warn(`Geocoding failed (${err.message}); using the stored centre ${center.lat}, ${center.lon}`);
+    }
+  }
 
   const staticLoader = async (p) => {
     if (args.staticBase) {

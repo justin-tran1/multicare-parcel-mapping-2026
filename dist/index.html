@@ -2093,17 +2093,31 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     extent: [-122.34, 47.23, -122.15, 47.37],
     notes: 'ZONINGNAME combines code and label, e.g. "C1 (Light Commercial)".'
   };
+  var PIERCE_CITY_PLACEHOLDERS = "^(TACO|TACOMA|PUYA|PUYALLUP|LAKE|LAKEWOOD|FIFE|UP|UNIV|SUMN|SUMNER|BONN|AUBN|AUBURN|GIGH|EDGE|MILT|MILTON|ORTG|ORTING|EATO|ROY|RUST|STEI|WILK|DUPT|DUPONT|BUCK|CARB|SOPR|PACI|FIRC|INC|INCORP|CITY|N/?A|NONE|UNZONED)$";
   var PIERCE_ZONING = [
     {
       id: "tacoma-zoning-2025",
       confidence: "likely",
       name: "Zoning Districts 2025 (City of Tacoma Open Data)",
       publisher: "City of Tacoma Planning & Development Services",
-      item: { id: "e71809b0bb4e4365a478a46117583daf", layer: 0 },
+      // The hub item id is not stable, so the hosted feature service is found by portal search.
+      item: { query: 'title:"Zoning Districts 2025" Tacoma type:"Feature Service"', match: "tacoma", layer: 0 },
       fields: { zoning: ["Zoning", "ZONING", "ZONE", "Zone_Code", "ZONECODE"] },
       jurisdiction: "City of Tacoma",
       extent: [-122.62, 47.13, -122.3, 47.34],
-      notes: 'Hub item "Zoning Districts 2025 (Tacoma)"; the hosted layer URL is resolved from the item at run time.'
+      notes: 'Hub dataset "Zoning Districts 2025 (Tacoma)"; the hosted layer is located through an ArcGIS Online search at run time.'
+    },
+    {
+      id: "tacoma-dart-zoning",
+      confidence: "likely",
+      name: "Zoning Districts (City of Tacoma DART map service)",
+      publisher: "City of Tacoma GIS",
+      url: "https://gis.cityoftacoma.org/arcgis/rest/services/DART/DARTzoning/MapServer",
+      layerMatch: "^Zoning Districts$",
+      fields: { zoning: ["Zoning", "ZONING", "ZONE", "Zone_Code", "ZONECODE"] },
+      jurisdiction: "City of Tacoma",
+      extent: [-122.62, 47.13, -122.3, 47.34],
+      notes: "City enterprise map service (Development & Permitting); the zoning layer is picked by name from the service."
     },
     {
       id: "puyallup-zoning",
@@ -2146,8 +2160,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       publisher: "Pierce County Planning & Public Works",
       item: { id: "068b1c905eb1465ab61812e9a8d1032e", layer: 0 },
       fields: { zoning: ["ZON_CUR_CD", "zon_cur_cd"], zoning_description: ["ZON_CUR_NA", "zon_cur_na"] },
+      exclude: PIERCE_CITY_PLACEHOLDERS,
+      excludeDescription: "(city of|town of|incorporated|not zoned|unzoned)",
       jurisdiction: "Pierce County (unincorporated)",
-      notes: "Adopted zoning for unincorporated Pierce County only (ZON_CUR_CD code, ZON_CUR_NA name); city zoning is not included."
+      notes: "Adopted zoning for unincorporated Pierce County only (ZON_CUR_CD code, ZON_CUR_NA name); incorporated cities appear as placeholder polygons (e.g. TACO) that are skipped so city layers or the statewide atlas apply."
     },
     WAZA_ZONING
   ];
@@ -2211,6 +2227,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       publisher: "King County GIS Center / Permitting",
       url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/1",
       fields: { zoning: ["CURRZONE"], zoning_description: false },
+      exclude: "^(INC|INCORP|CITY|N/?A|NONE|UNZONED)$",
+      excludeDescription: "(city of|incorporated)",
       jurisdiction: "King County (unincorporated)",
       notes: "CURRZONE is the current zoning of unincorporated King County; city zoning comes from city layers or the statewide atlas."
     },
@@ -3409,20 +3427,39 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   var itemUrlCache = /* @__PURE__ */ new Map();
   function sourceKey(source) {
-    return source.url || (source.item ? `item:${source.item.portal || ""}${source.item.id}/${source.item.layer ?? 0}` : source.id);
+    if (source.url && !source.layerMatch) return source.url;
+    if (source.url) return `${source.url}#${source.layerMatch}`;
+    if (source.item?.id) return `item:${source.item.portal || ""}${source.item.id}/${source.item.layer ?? 0}`;
+    if (source.item?.query) return `search:${source.item.portal || ""}${source.item.query}/${source.item.layer ?? 0}`;
+    return source.id;
   }
+  var validServiceUrl = (url) => /^https:\/\/[^\s"'<>]+$/i.test(url);
   async function resolveSourceUrl(source) {
-    if (source.url) return source.url;
-    if (!source.item?.id) throw new ArcGISError("Source has neither a layer URL nor a portal item id", { code: "config" });
-    const { id, layer = 0, portal = "https://www.arcgis.com" } = source.item;
-    const key = `${portal}|${id}|${layer}`;
+    if (source.url && !source.layerMatch) return source.url;
+    const key = sourceKey(source);
     if (!itemUrlCache.has(key)) {
       const p = (async () => {
-        const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`, { timeoutMs: 2e4 });
-        if (!item?.url) throw new ArcGISError("Portal item has no service URL", { code: "item", url: `${portal}/home/item.html?id=${id}` });
-        let url = String(item.url).trim().replace(/\/+$/, "");
-        if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) throw new ArcGISError("Portal item URL is not an https service URL", { code: "item", url: `${portal}/home/item.html?id=${id}` });
-        if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
+        let url = source.url ? String(source.url).trim().replace(/\/+$/, "") : "";
+        const { layer = 0, portal = "https://www.arcgis.com" } = source.item || {};
+        if (!url && source.item?.id) {
+          const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(source.item.id)}?f=json`, { timeoutMs: 2e4 });
+          if (!item?.url) throw new ArcGISError("Portal item has no service URL", { code: "item", url: `${portal}/home/item.html?id=${source.item.id}` });
+          url = String(item.url).trim().replace(/\/+$/, "");
+        } else if (!url && source.item?.query) {
+          const res = await fetchJson(`${portal}/sharing/rest/search?q=${encodeURIComponent(source.item.query)}&num=25&sortField=modified&sortOrder=desc&f=json`, { timeoutMs: 2e4 });
+          const match = source.item.match ? new RegExp(source.item.match, "i") : null;
+          const hit = (res?.results || []).find((r) => r.url && /Server\/?$/i.test(String(r.url)) && (!match || match.test(`${r.title || ""} | ${r.owner || ""} | ${r.snippet || ""}`)));
+          if (!hit) throw new ArcGISError(`No portal item matched "${source.item.query}"`, { code: "item" });
+          url = String(hit.url).trim().replace(/\/+$/, "");
+        } else if (!url) throw new ArcGISError("Source has neither a layer URL nor a portal item", { code: "config" });
+        if (!validServiceUrl(url)) throw new ArcGISError("Portal item URL is not an https service URL", { code: "item" });
+        if (source.layerMatch) {
+          const root = await fetchJson(`${url}?f=json`, { timeoutMs: 2e4 });
+          const re = new RegExp(source.layerMatch, "i");
+          const found = (root?.layers || []).find((l) => re.test(l.name || ""));
+          if (!found) throw new ArcGISError(`No layer matching /${source.layerMatch}/ in the service`, { code: "item", url });
+          url = `${url}/${found.id}`;
+        } else if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
         return url;
       })();
       itemUrlCache.set(key, p);
@@ -3435,7 +3472,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (!layerPrep.has(key)) {
       const p = (async () => {
         const url = await resolveSourceUrl(source);
-        if (!source.url) source.url = url;
+        if (!source.url || source.layerMatch) {
+          source.url = url;
+          delete source.layerMatch;
+        }
         const info = await getLayerInfo(url);
         const { map, how } = resolveFieldMap(info, source.fields || {});
         const missingComputed = {};
@@ -4039,20 +4079,25 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           if (!fm.zoning) throw new ArcGISError("No zoning code field found on this layer", { url: source.url, code: "schema" });
           const fc = await queryFeatures(source.url, { bbox: area, info: prep.info, signal, outFields: [fm.zoning, fm.zoning_description, source.jurisdictionField].filter(Boolean) });
           const exclude = source.exclude ? new RegExp(source.exclude, "i") : null;
+          const excludeDesc = source.excludeDescription ? new RegExp(source.excludeDescription, "i") : null;
           const features = [];
+          let placeholders = 0;
           for (const f of fc.features) {
             if (!f.geometry) continue;
             const props = f.properties || {};
             const code = cleanText(getField(props, fm.zoning));
-            if (!code || exclude && exclude.test(code)) continue;
             let description = cleanText(getField(props, fm.zoning_description));
             if (!description) description = decodeDomain(prep, fm.zoning, getField(props, fm.zoning)) || "";
+            if (!code || exclude && exclude.test(code) || excludeDesc && excludeDesc.test(description)) {
+              if (code) placeholders += 1;
+              continue;
+            }
             if (description === code) description = "";
             const jurisdiction = source.jurisdictionField ? cleanText(getField(props, source.jurisdictionField)) : "";
             features.push({ geometry: f.geometry, bbox: geometryBBox(f.geometry), code, description, jurisdiction });
           }
           const set = { source, features, fieldMap: fm, assigned: 0 };
-          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: "zoning", count: features.length, truncated: fc.truncated, fieldMap: fm, county, confidence: source.confidence, jurisdiction: source.jurisdiction || "" });
+          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: "zoning", count: features.length, placeholders, truncated: fc.truncated, fieldMap: fm, county, confidence: source.confidence, jurisdiction: source.jurisdiction || "" });
           return set;
         } catch (err) {
           if (isAbort(err) || signal?.aborted) throw err;
@@ -5573,7 +5618,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const roleLabel = { enrich: "attribute join", static: "assessor extract", zoning: "zoning districts" }[s.role];
       let status;
       if (!s.ok) status = `<span class="status-err">unavailable</span> \xB7 ${escapeHtml(s.error || "")}`;
-      else if (s.role === "zoning") status = `<span class="status-ok">online</span> \xB7 ${s.count} zoning polygon${s.count === 1 ? "" : "s"} in area${s.jurisdiction ? ` \xB7 ${escapeHtml(s.jurisdiction)}` : ""}${s.truncated ? " (truncated)" : ""}`;
+      else if (s.role === "zoning") status = `<span class="status-ok">online</span> \xB7 ${s.count} zoning polygon${s.count === 1 ? "" : "s"} in area${s.placeholders ? ` (${s.placeholders} city placeholder${s.placeholders === 1 ? "" : "s"} skipped)` : ""}${s.jurisdiction ? ` \xB7 ${escapeHtml(s.jurisdiction)}` : ""}${s.truncated ? " (truncated)" : ""}`;
       else if (s.role === "static") status = `<span class="status-ok">loaded</span> \xB7 ${s.joined ?? 0} parcel${s.joined === 1 ? "" : "s"} matched${s.generated ? ` \xB7 extract built ${escapeHtml(String(s.generated).slice(0, 10))}` : ""}${s.asOf ? ` from files dated ${escapeHtml(String(s.asOf).slice(0, 10))}` : ""}`;
       else status = `<span class="status-ok">online</span> \xB7 ${s.count} record${s.count === 1 ? "" : "s"} in query envelope${s.joined !== void 0 ? ` \xB7 ${s.joined} parcels matched` : ""}${s.truncated ? " (truncated)" : ""}${s.zoned ? ` \xB7 zoning assigned to ${s.zoned}` : ""}`;
       items.push(`<div class="source ${s.ok ? "" : "err"}">

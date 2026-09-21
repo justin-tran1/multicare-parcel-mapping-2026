@@ -11,10 +11,11 @@ export const TACOMA_URL = 'https://esgis.tacoma.gov/arcgis/rest/services/Ref/ITD
 export const PIERCE_URL = 'https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Tax_Parcels/FeatureServer/0';
 export const WA_URL = 'https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Current_Parcels/FeatureServer/0';
 export const WAZA_URL = 'https://services6.arcgis.com/tboeqGwETr5ppr5Q/arcgis/rest/services/WAZA_Prototype_Layers/FeatureServer/0';
-// Hub items resolved at run time by the app -> mocked hosted layers
-export const TACOMA_ZONING_ITEM = 'e71809b0bb4e4365a478a46117583daf';
+// Hub items resolved at run time by the app -> mocked hosted layers (Tacoma is found by a
+// portal search, the county layer by item id, the DART service by layer name)
 export const PIERCE_ZONING_ITEM = '068b1c905eb1465ab61812e9a8d1032e';
 export const TACOMA_ZONING_URL = 'https://services.arcgis.com/mockTacoma/arcgis/rest/services/Zoning_Districts_2025/FeatureServer/0';
+export const TACOMA_DART_URL = 'https://gis.cityoftacoma.org/arcgis/rest/services/DART/DARTzoning/MapServer';
 export const PIERCE_ZONING_URL = 'https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Zoning_and_Land_Use_Designations/FeatureServer/0';
 
 const OWNERS = [
@@ -224,7 +225,7 @@ function esriPage(features, params, propsOf, pageSize) {
  * Returns a log of requests per layer.
  */
 export async function installMockArcGIS(page, { parcels = makeParcels(), zones = makeZones(), countyZones = [], wazaZones = [], fail = new Set(), pierceOwnerNames = false, tacomaPageSize = 1000, delayMs = 0, extract = true } = {}) {
-  const log = { tacoma: [], pierce: [], wa: [], tacomaZoning: [], pierceZoning: [], waza: [], items: [], extract: [], tiles: 0, other: [], blocked: [] };
+  const log = { tacoma: [], pierce: [], wa: [], tacomaZoning: [], pierceZoning: [], waza: [], items: [], searches: [], dart: [], extract: [], tiles: 0, other: [], blocked: [] };
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
   // Tests must never reach a real service. Any ArcGIS REST host that is not explicitly
@@ -277,10 +278,31 @@ export async function installMockArcGIS(page, { parcels = makeParcels(), zones =
     const id = request.url().match(/items\/([0-9a-f]+)/)[1];
     log.items.push(id);
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-    const url = { [TACOMA_ZONING_ITEM]: TACOMA_ZONING_URL.replace(/\/0$/, ''), [PIERCE_ZONING_ITEM]: PIERCE_ZONING_URL.replace(/\/0$/, '') }[id];
+    const url = { [PIERCE_ZONING_ITEM]: PIERCE_ZONING_URL.replace(/\/0$/, '') }[id];
     if (!url) return json(route, { error: { code: 400, message: 'Item does not exist or is inaccessible.' } }, 400);
     return json(route, { id, type: 'Feature Service', title: 'mock zoning', url });
   });
+  // Portal search used to locate the Tacoma zoning service; a decoy (Tempe, AZ) comes first.
+  await page.route(/https:\/\/www\.arcgis\.com\/sharing\/rest\/search\?/, async (route, request) => {
+    const q = new URL(request.url()).searchParams.get('q') || '';
+    log.searches.push(q);
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    return json(route, {
+      total: 2,
+      results: [
+        { id: 'decoy', title: 'zoning_districts', owner: 'TempeData', type: 'Feature Service', url: 'https://services.arcgis.com/lQySeXwbBg53XWDi/arcgis/rest/services/zoning_districts/FeatureServer' },
+        { id: 'tacoma2025', title: 'Zoning Districts 2025 (Tacoma)', owner: 'tacoma', type: 'Feature Service', url: TACOMA_ZONING_URL.replace(/\/0$/, '') },
+      ],
+    });
+  });
+  // The DART map service root lists its layers; the app picks "Zoning Districts" (id 3) by name.
+  await page.route(`${TACOMA_DART_URL}**`, async (route, request) => {
+    log.dart.push(request.url());
+    const path = new URL(request.url()).pathname;
+    if (/MapServer\/?$/.test(path)) return json(route, { layers: [{ id: 0, name: 'Land Use Designations' }, { id: 3, name: 'Zoning Districts' }, { id: 4, name: 'Historic Zoning Districts Overlay 1' }] });
+    return json(route, { error: { code: 503, message: 'DART layer not mocked' } }, 503);
+  });
+  await page.route(`${TACOMA_DART_URL}/3**`, handler('dart', `${TACOMA_DART_URL}/3`, zoningLayerInfo('Zoning Districts', 'Zoning', 'Zone_Desc'), (z) => ({ OBJECTID: z.oid, Zoning: z.code, Zone_Desc: z.desc }), { features: zones }));
   await page.route(`${TACOMA_ZONING_URL}**`, handler('tacomaZoning', TACOMA_ZONING_URL, zoningLayerInfo('Zoning Districts 2025', 'Zoning', 'Zoning_Desc'), (z) => ({ OBJECTID: z.oid, Zoning: z.code, Zoning_Desc: z.desc }), { features: zones }));
   await page.route(`${PIERCE_ZONING_URL}**`, handler('pierceZoning', PIERCE_ZONING_URL, zoningLayerInfo('Zoning and Land Use Designations', 'ZON_CUR_CD', 'ZON_CUR_NA'), (z) => ({ OBJECTID: z.oid, ZON_CUR_CD: z.code, ZON_CUR_NA: z.desc }), { features: countyZones }));
   await page.route(`${WAZA_URL}**`, handler('waza', WAZA_URL, { ...zoningLayerInfo('WAZA_Prototype_Layers', 'ZoneID', 'ZoneName'), fields: [F('OBJECTID', 'esriFieldTypeOID'), F('Jurisdiction', 'esriFieldTypeString'), F('ZoneID', 'esriFieldTypeString'), F('ZoneName', 'esriFieldTypeString')] }, (z) => ({ OBJECTID: z.oid, Jurisdiction: 'Tacoma', ZoneID: z.code, ZoneName: z.desc }), { features: wazaZones }));

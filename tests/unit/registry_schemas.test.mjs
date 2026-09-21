@@ -63,7 +63,7 @@ test('every registry source has an id, a name and either a url or a portal item'
       assert.ok(s.url || s.item?.id || s.static, `${s.id} has no url, item or static extract`);
     }
     for (const z of p.zoning || []) {
-      assert.ok(z.id && z.name && (z.url || z.item?.id), `${p.key} zoning source ${z.id} incomplete`);
+      assert.ok(z.id && z.name && (z.url || z.item?.id || z.item?.query), `${p.key} zoning source ${z.id} incomplete`);
       if (z.extent) assert.ok(z.extent[0] < z.extent[2] && z.extent[1] < z.extent[3], `${z.id} extent is not min/max ordered`);
     }
   }
