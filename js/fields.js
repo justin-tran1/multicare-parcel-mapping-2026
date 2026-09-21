@@ -116,12 +116,14 @@ const HEURISTICS = {
   },
   zoning: {
     include: /(^zon(e|ing)|_zon(e|ing)|zone_?(code|cd|class|dist|district)|zoning_?(code|cd|class|dist|district)|zn_?code|zonecode|zoning$|zone$)/i,
-    exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date)/i,
-    prefer: /(zoning|zone_?code|zone_?cd|kca_?zoning)/i,
+    // tax code areas, UTM/time/climate zones, utility zones, ordinance and area fields are
+    // not zoning districts
+    exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date|tax|tca|levy|utm|sewer|water|climate|snow|wind|time|acre|area|ord|market|nbhd|neighbo|value|appr|assess|police|ems|transit|parking|noise|hazard|liquef|wetland|shoreline|critical)/i,
+    prefer: /(^zoning$|^zone$|zone_?code|zone_?cd|zoning_?code|kca_?zoning|^zon_cur_cd$)/i,
   },
   zoning_description: {
     include: /(zon(e|ing).*(desc|description|name|label|text)|(desc|description|name).*zon(e|ing))/i,
-    exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date)/i,
+    exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date|lu_?des|land_?use|designation)/i,
   },
   sale_date: {
     include: /(sale.*(date|_dt$|dt$)|(date|dt).*sale|deed_?date|document_?date|doc_?date|transfer_?date|trnsf_?date|xfer_?date|recording_?date|excise_?date|sold_?date|date_?sold|year_?sold|sale_?yr|sale_?year)/i,
@@ -129,8 +131,9 @@ const HEURISTICS = {
     prefer: /(sale_?date|saledate|document_?date|trnsf_?date|transfer_?date)/i,
   },
   sale_price: {
-    include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price|excise_?amount)/i,
-    exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise_?nbr|excise_?num|tax_?amt)/i,
+    include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price)/i,
+    // validity / qualification flags and excise-tax fields sit beside prices in WA sales tables
+    exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise|affidavit|reet|valid|qual|tax_?amt)/i,
     prefer: /(sale_?price|saleprice|sale_?amount|saleamount|gross_?sale)/i,
   },
   sale_grantor: {
@@ -143,12 +146,12 @@ const HEURISTICS = {
   },
   // The business operating on the parcel (occupant), which is not the owner of record.
   business_name: {
-    include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name|company_?name)/i,
+    include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name)/i,
     exclude: /(addr|address|owner|taxpayer|id$|code|type|date|_dt$)/i,
   },
   exemption: {
     include: /(exempt)/i,
-    exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev)/i,
+    exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev|yr|year|flag|status|stat$)/i,
     prefer: /(type|desc|description|code)/i,
   },
 };
@@ -176,9 +179,12 @@ const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value',
  * Parses an assessor date: epoch milliseconds (ArcGIS), ISO strings, "MM/DD/YYYY",
  * "YYYYMMDD", or a plain year. Returns an ISO date string (YYYY-MM-DD) or null.
  */
-export function toISODate(v) {
+export function toISODate(v, { epochMs = false } = {}) {
   if (v === null || v === undefined || v === '') return null;
   if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return null;
+    // Esri date fields are always epoch milliseconds (negative before 1970).
+    if (epochMs) return new Date(v).toISOString().slice(0, 10);
     if (v > 1e11) return new Date(v).toISOString().slice(0, 10); // epoch ms
     if (v > 1e9) return new Date(v * 1000).toISOString().slice(0, 10); // epoch s
     if (v >= 18000101 && v <= 21001231) return `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6, 8)}`;
@@ -239,6 +245,8 @@ export function resolveFieldMap(layerInfo, candidates = {}) {
         if (used.has(f.name)) continue;
         if (f.type === 'esriFieldTypeOID' || f.type === 'esriFieldTypeGeometry' || /^shape([._]|$)/i.test(f.name)) continue;
         let s = score(f, HEURISTICS[attr]);
+        // exemption text (type / description / code): never a Y/N flag or a numeric field
+        if (s && attr === 'exemption' && (f.type !== 'esriFieldTypeString' || (f.length && f.length <= 2))) continue;
         if (s && VALUE_ATTRS.has(attr)) {
           if (NUMERIC_TYPES.has(f.type)) s += 10;
           else if (f.type === 'esriFieldTypeString') {

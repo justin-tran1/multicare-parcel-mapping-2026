@@ -1874,12 +1874,14 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     zoning: {
       include: /(^zon(e|ing)|_zon(e|ing)|zone_?(code|cd|class|dist|district)|zoning_?(code|cd|class|dist|district)|zn_?code|zonecode|zoning$|zone$)/i,
-      exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date)/i,
-      prefer: /(zoning|zone_?code|zone_?cd|kca_?zoning)/i
+      // tax code areas, UTM/time/climate zones, utility zones, ordinance and area fields are
+      // not zoning districts
+      exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date|tax|tca|levy|utm|sewer|water|climate|snow|wind|time|acre|area|ord|market|nbhd|neighbo|value|appr|assess|police|ems|transit|parking|noise|hazard|liquef|wetland|shoreline|critical)/i,
+      prefer: /(^zoning$|^zone$|zone_?code|zone_?cd|zoning_?code|kca_?zoning|^zon_cur_cd$)/i
     },
     zoning_description: {
       include: /(zon(e|ing).*(desc|description|name|label|text)|(desc|description|name).*zon(e|ing))/i,
-      exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date)/i
+      exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date|lu_?des|land_?use|designation)/i
     },
     sale_date: {
       include: /(sale.*(date|_dt$|dt$)|(date|dt).*sale|deed_?date|document_?date|doc_?date|transfer_?date|trnsf_?date|xfer_?date|recording_?date|excise_?date|sold_?date|date_?sold|year_?sold|sale_?yr|sale_?year)/i,
@@ -1887,8 +1889,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       prefer: /(sale_?date|saledate|document_?date|trnsf_?date|transfer_?date)/i
     },
     sale_price: {
-      include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price|excise_?amount)/i,
-      exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise_?nbr|excise_?num|tax_?amt)/i,
+      include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price)/i,
+      // validity / qualification flags and excise-tax fields sit beside prices in WA sales tables
+      exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise|affidavit|reet|valid|qual|tax_?amt)/i,
       prefer: /(sale_?price|saleprice|sale_?amount|saleamount|gross_?sale)/i
     },
     sale_grantor: {
@@ -1901,12 +1904,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     // The business operating on the parcel (occupant), which is not the owner of record.
     business_name: {
-      include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name|company_?name)/i,
+      include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name)/i,
       exclude: /(addr|address|owner|taxpayer|id$|code|type|date|_dt$)/i
     },
     exemption: {
       include: /(exempt)/i,
-      exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev)/i,
+      exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev|yr|year|flag|status|stat$)/i,
       prefer: /(type|desc|description|code)/i
     }
   };
@@ -1927,9 +1930,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   var NUMERIC_TYPES = /* @__PURE__ */ new Set(["esriFieldTypeDouble", "esriFieldTypeSingle", "esriFieldTypeInteger", "esriFieldTypeSmallInteger", "esriFieldTypeBigInteger"]);
   var VALUE_ATTRS = /* @__PURE__ */ new Set(["taxable_value", "land_value", "improvement_value", "total_value", "land_acres", "land_sqft", "sale_price"]);
-  function toISODate(v) {
+  function toISODate(v, { epochMs = false } = {}) {
     if (v === null || v === void 0 || v === "") return null;
     if (typeof v === "number") {
+      if (!Number.isFinite(v)) return null;
+      if (epochMs) return new Date(v).toISOString().slice(0, 10);
       if (v > 1e11) return new Date(v).toISOString().slice(0, 10);
       if (v > 1e9) return new Date(v * 1e3).toISOString().slice(0, 10);
       if (v >= 18000101 && v <= 21001231) return `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6, 8)}`;
@@ -1982,6 +1987,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           if (used.has(f.name)) continue;
           if (f.type === "esriFieldTypeOID" || f.type === "esriFieldTypeGeometry" || /^shape([._]|$)/i.test(f.name)) continue;
           let s = score(f, HEURISTICS[attr]);
+          if (s && attr === "exemption" && (f.type !== "esriFieldTypeString" || f.length && f.length <= 2)) continue;
           if (s && VALUE_ATTRS.has(attr)) {
             if (NUMERIC_TYPES.has(f.type)) s += 10;
             else if (f.type === "esriFieldTypeString") {
@@ -2059,7 +2065,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     url: "https://services6.arcgis.com/tboeqGwETr5ppr5Q/arcgis/rest/services/WAZA_Prototype_Layers/FeatureServer/0",
     fields: { zoning: ["ZoneID"], zoning_description: ["ZoneName"] },
     jurisdictionField: "Jurisdiction",
-    notes: "Normalized statewide atlas of city and county zoning (2024\u20132025 vintage) used where the jurisdiction publishes no zoning service; codes can lag recent municipal code amendments."
+    notes: "Normalized statewide atlas of city and county zoning (2024\u20132025 vintage) used where the jurisdiction publishes no zoning service; codes can lag recent municipal code amendments. Commerce publishes the atlas under the State open-data terms (RCW 42.56.070(8) restricts commercial use of lists of individuals, which zoning polygons do not contain)."
   };
   var AUBURN_ZONING = {
     id: "auburn-zoning",
@@ -2164,7 +2170,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     {
       id: "kent-zoning",
-      confidence: "confirmed",
+      confidence: "likely",
       name: "Zoning Districts (City of Kent)",
       publisher: "City of Kent GIS",
       url: "https://geoservices.kentwa.gov/public/rest/services/PUBLIC_PLANNING_ZoningDistricts/MapServer/0",
@@ -2174,7 +2180,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     },
     {
       id: "federal-way-zoning",
-      confidence: "confirmed",
+      confidence: "likely",
       name: "Zoning (City of Federal Way)",
       publisher: "City of Federal Way GIS",
       url: "https://geoportal.cityoffederalway.com/res/rest/services/FW_Land/zoning/MapServer/0",
@@ -2192,16 +2198,6 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       fields: { zoning: ["CURRZONE"], zoning_description: false },
       jurisdiction: "King County (unincorporated)",
       notes: "CURRZONE is the current zoning of unincorporated King County; city zoning comes from city layers or the statewide atlas."
-    },
-    {
-      id: "king-county-zoning-opendata",
-      confidence: "likely",
-      name: "King County zoning, unincorporated (open-data KingCo_Zoning)",
-      publisher: "King County GIS Center",
-      url: "https://gisdata.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/0",
-      fields: { zoning: ["CURRZONE"], zoning_description: false },
-      jurisdiction: "King County (unincorporated)",
-      notes: "Alternate host and layer index for the same unincorporated zoning data."
     },
     WAZA_ZONING
   ];
@@ -2389,7 +2385,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     improvement_value: ["ImprovementValueCurrentYear", "ImprovementValue", "Improvement_Value", "ImprovementValuePriorYear"],
     total_value: ["TotalMarketValueCurrentYear", "TotalMarketValue", "TotalMarketValuePriorYear"],
     land_acres: ["LandGrossAcres", "Land_Acres"],
-    use_code: ["Use_Code", "CurrentUseCodeCurrentYear"],
+    // CurrentUseCodeCurrentYear is the RCW 84.34 open-space / farm program code, not land use
+    use_code: ["Use_Code"],
     use_description: ["Landuse_Description", "UseDescription"]
   };
   var KING_FIELDS = {
@@ -2821,12 +2818,13 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           enrich: true,
           joinBy: "ids",
           joinField: "ASSESSOR_N",
-          confidence: "confirmed",
-          name: "Sales (Yakima County Assessor)",
+          confidence: "likely",
+          name: "Sales, recent assessment year (Yakima County Assessor)",
           publisher: "Yakima County GIS / Assessor",
           url: "https://maps.yakimacounty.us/server/rest/services/Assessor/Sales/FeatureServer/11",
           fields: { parcel_id: ["ASSESSOR_N"], owner: false, situs_address: false, sale_date: ["DOCUMENT_D"], sale_price: ["GROSS_SALE"], use_code: false, use_description: false },
-          notes: "Recorded sales by assessor number (document date, gross sale price); joined by parcel-number list."
+          notesFor: { sale_date: "from the assessor's recent-year sales layer; older sales are not in this layer" },
+          notes: "Recorded sales by assessor number (document date, gross sale price) for the assessor's most recent sales year only, so a parcel without a recent sale shows none; joined by parcel-number list."
         },
         STATEWIDE_ENRICH
       ]
@@ -3495,15 +3493,25 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (/^https?:\/\//i.test(path)) url = path;
     else if (base && /^https?:/i.test(base)) url = new URL(path, base).href;
     else if (base && /^file:/i.test(base) && globalThis.__STATIC_DATA_BASE) url = new URL(path, globalThis.__STATIC_DATA_BASE).href;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new ArcGISError("Request timed out", { url, code: "timeout" })), 3e4);
+    const onAbort = () => ctrl.abort(signal.reason);
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
     let res;
     try {
-      res = await fetch(url, { signal, credentials: "omit" });
-    } catch (err) {
-      if (signal?.aborted) throw new ArcGISError("Cancelled", { url, code: "aborted", cause: err });
-      throw new ArcGISError(`Network error: ${err.message}`, { url, code: "network", cause: err });
+      try {
+        res = await fetch(url, { signal: ctrl.signal, credentials: "omit" });
+      } catch (err) {
+        if (ctrl.signal.reason instanceof ArcGISError) throw ctrl.signal.reason;
+        if (signal?.aborted) throw new ArcGISError("Cancelled", { url, code: "aborted", cause: err });
+        throw new ArcGISError(`Network error: ${err.message}`, { url, code: "network", cause: err });
+      }
+      if (!res.ok) throw new ArcGISError(`HTTP ${res.status}`, { url, code: res.status });
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onAbort);
     }
-    if (!res.ok) throw new ArcGISError(`HTTP ${res.status}`, { url, code: res.status });
-    return res.json();
   }
   function loadStatic(loader, path, signal) {
     if (!staticCache.has(path)) {
@@ -3562,7 +3570,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       exemption: cleanText(getField(props, m.exemption)),
       zoning: cleanText(getField(props, m.zoning)),
       zoning_description: cleanText(getField(props, m.zoning_description)),
-      sale_date: toISODate(getField(props, m.sale_date)),
+      sale_date: toISODate(getField(props, m.sale_date), { epochMs: m.sale_date ? prep.fieldTypes?.[m.sale_date.toLowerCase()] === "esriFieldTypeDate" : false }),
       sale_price: toNumber(getField(props, m.sale_price)),
       sale_grantor: cleanText(getField(props, m.sale_grantor)),
       sale_deed_type: cleanText(getField(props, m.sale_deed_type)),
@@ -3659,19 +3667,39 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return out;
   }
   var saleRank = (a) => `${a.sale_date || ""}|${String(a.sale_price ?? 0).padStart(15, "0")}`;
+  var VALID_SALE = ["valid_sale_date", "valid_sale_price"];
+  var SALE_META = ["sale_valid", "sale_exclude_reason", "sale_etn", "sale_parcel_count"];
+  var saleKeysOf = (row) => row.sale_date && has(row.legal_owner) ? [...SALE_GROUP, "legal_owner", ...SALE_META] : [...SALE_GROUP, ...SALE_META];
+  var pricedOf = (row) => row.sale_date && has(row.sale_price) && row.sale_price > 0 ? { date: row.sale_date, price: row.sale_price } : null;
+  function trackPriced(cur, row) {
+    const cand = pricedOf(row);
+    if (cand && (!cur._bestPriced || cand.date > cur._bestPriced.date)) cur._bestPriced = cand;
+    if (has(row.valid_sale_date)) cur._validExplicit = true;
+    if (cur._validExplicit) return;
+    if (cur._bestPriced && cur._bestPriced.date !== cur.sale_date) {
+      cur.valid_sale_date = cur._bestPriced.date;
+      cur.valid_sale_price = cur._bestPriced.price;
+    } else {
+      delete cur.valid_sale_date;
+      delete cur.valid_sale_price;
+    }
+  }
   function putEnrich(byId, k, attrs) {
     const cur = byId.get(k);
     if (!cur) {
+      trackPriced(attrs, attrs);
       byId.set(k, attrs);
       return;
     }
     const newer = attrs.sale_date && (!cur.sale_date || saleRank(attrs) > saleRank(cur));
+    const saleKeys = /* @__PURE__ */ new Set([...saleKeysOf(attrs), ...saleKeysOf(cur), ...VALID_SALE]);
     for (const [key, v] of Object.entries(attrs)) {
       if (key.startsWith("_")) continue;
-      if (SALE_GROUP.includes(key)) {
+      if (saleKeys.has(key)) {
         if (newer) {
           cur[key] = v;
           if (attrs._sourceFields[key]) cur._sourceFields[key] = attrs._sourceFields[key];
+          if (attrs._notes?.[key]) cur._notes[key] = attrs._notes[key];
         }
         continue;
       }
@@ -3680,14 +3708,19 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         if (attrs._sourceFields[key]) cur._sourceFields[key] = attrs._sourceFields[key];
       }
     }
+    if (newer) {
+      for (const key of [...VALID_SALE, ...SALE_META]) if (!has(attrs[key])) delete cur[key];
+    }
+    trackPriced(cur, attrs);
   }
   function mergeAttrs(primary, extras) {
     const out = { ...primary, _sourceFields: { ...primary._sourceFields }, _notes: { ...primary._notes || {} } };
     for (const extra of extras) {
       const override = new Set(extra._override || []);
       const label = (k) => `${extra._sourceFields?.[k] || k} (${extra._sourceName})`;
+      const saleKeys = /* @__PURE__ */ new Set([...saleKeysOf(extra), ...VALID_SALE]);
       for (const [k, v] of Object.entries(extra)) {
-        if (k.startsWith("_") || SALE_GROUP.includes(k)) continue;
+        if (k.startsWith("_") || saleKeys.has(k)) continue;
         const empty = !has(out[k]);
         if (has(v) && (empty || override.has(k))) {
           out[k] = v;
@@ -3701,11 +3734,25 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         }
       }
       if (extra.sale_date && (!out.sale_date || saleRank(extra) > saleRank(out) || override.has("sale_date"))) {
-        for (const k of SALE_GROUP) {
-          out[k] = has(extra[k]) ? extra[k] : null;
-          if (has(extra[k])) out._sourceFields[k] = label(k);
+        for (const k of saleKeysOf(extra)) {
+          if (has(extra[k])) {
+            out[k] = extra[k];
+            out._sourceFields[k] = label(k);
+          } else if (SALE_META.includes(k)) delete out[k];
+          else out[k] = null;
           if (extra._notes?.[k]) out._notes[k] = extra._notes[k];
         }
+        for (const k of VALID_SALE) {
+          if (has(extra[k])) out[k] = extra[k];
+          else delete out[k];
+        }
+        if (!(extra.sale_price > 0) && primary.sale_price > 0 && primary.sale_date && !has(out.valid_sale_date)) {
+          out.valid_sale_date = primary.sale_date;
+          out.valid_sale_price = primary.sale_price;
+        }
+      } else if (extra.sale_date && has(out.sale_date) && !(out.sale_price > 0) && extra.sale_price > 0 && !has(out.valid_sale_date)) {
+        out.valid_sale_date = extra.sale_date;
+        out.valid_sale_price = extra.sale_price;
       }
     }
     return out;
@@ -3828,9 +3875,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (p.merged.zoning) continue;
       const geom = p.f.geometry;
       if (!geom) continue;
-      const polys = polygonsOf(geom);
-      if (!polys.length) continue;
-      const pt = labelPoint(polys);
+      if (!p._label) {
+        const polys = polygonsOf(geom);
+        if (!polys.length) continue;
+        p._label = labelPoint(polys);
+      }
+      const pt = p._label;
       outer: for (const z of zoningSets) {
         for (const zf of z.features) {
           if (!pointInBBox(pt, zf.bbox) || !pointInGeometry(pt, zf.geometry)) continue;
@@ -4106,7 +4156,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     }
     async runProvider(provider, bbox, county, records, report, signal, onlyCounties = null, extraZoning = []) {
       const seenZoning = /* @__PURE__ */ new Set();
-      const zoningSources = [...provider.zoning || this.statewide?.zoning || [], ...extraZoning].filter((s) => !seenZoning.has(s.id) && seenZoning.add(s.id));
+      const zoningSources = [...extraZoning, ...provider.zoning || this.statewide?.zoning || []].filter((s) => !seenZoning.has(s.id) && seenZoning.add(s.id));
       const isBBoxEnrich = (s) => s.enrich && !s.static && s.joinBy !== "ids";
       const zoningJob = this.fetchZoning(provider, zoningSources, bbox, county, report, signal);
       const earlyJobs = provider.sources.filter((s) => isBBoxEnrich(s) && !s.geometry).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
@@ -4115,6 +4165,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       let primaryPrep = null;
       let primaryFC = null;
       const errors = [];
+      const unusable = /* @__PURE__ */ new Set();
       const geometrySources = provider.sources.filter((s) => s.geometry);
       try {
         for (const source of geometrySources) {
@@ -4122,6 +4173,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           try {
             const prep = await prepareSource(source, { signal });
             const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ["*"] });
+            if (!fc.features.length) unusable.add(source);
             if (!fc.features.length && !primary) {
               primary = source;
               primaryPrep = prep;
@@ -4137,6 +4189,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
             }
           } catch (err) {
             if (isAbort(err) || signal?.aborted) throw err;
+            unusable.add(source);
             errors.push({ source: source.name, url: source.url, error: errText(err) });
             report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, error: errText(err), county });
           }
@@ -4159,7 +4212,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         if (onlyCounties && featureCounty && !onlyCounties.has(String(featureCounty).toLowerCase())) continue;
         prepared.push({ f, merged: attrs, featureCounty });
       }
-      const lateJobs = provider.sources.filter((s) => isBBoxEnrich(s) && s.geometry && s !== primary).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
+      const lateJobs = provider.sources.filter((s) => isBBoxEnrich(s) && s.geometry && s !== primary && !unusable.has(s)).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
       const idEnrichers = provider.sources.filter((s) => s.enrich && s !== primary && (s.static || s.joinBy === "ids"));
       const idJobs = prepared.length ? idEnrichers.map((s) => s.static ? this.fetchStaticEnrich(provider, s, prepared, county, report, signal) : this.fetchIdEnrich(provider, s, prepared, county, report, signal)) : [];
       const [zoningSets, ...enrichResults] = await Promise.all([zoningJob, ...earlyJobs, ...lateJobs, ...idJobs]);
@@ -4177,7 +4230,18 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         }
         await applyLookup(primary, prepared.map((p) => p.merged), signal);
       }
-      const zoned = zoningSets.length ? assignZoning(prepared, zoningSets) : 0;
+      let zoned = zoningSets.length ? assignZoning(prepared, zoningSets) : 0;
+      if (zoningSources.length) {
+        const area = expandBBox(bbox, 400);
+        const outside = prepared.filter((p) => !p.merged.zoning && p._label && !pointInBBox(p._label, area));
+        if (outside.length) {
+          const pts = outside.map((p) => p._label);
+          const ptBBox = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))];
+          const extraSets = await this.fetchZoning(provider, zoningSources, ptBBox, county, () => {
+          }, signal);
+          if (extraSets.length) zoned += assignZoning(outside, extraSets);
+        }
+      }
       let added = 0;
       for (const { f, merged, featureCounty } of prepared) {
         const rec = buildRecord({ feature: f, provider, source: primary, attrs: merged, county: featureCounty });
@@ -4389,6 +4453,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     { pattern: "NAVOS", entity: "Navos (MultiCare Behavioral Health)", relationship: "affiliate", counties: ["King"] },
     { pattern: "GREATER LAKES MENTAL", entity: "Greater Lakes Mental Healthcare (MultiCare Behavioral Health)", relationship: "affiliate" },
     { pattern: "WELLFOUND BEHAVIORAL", entity: "Wellfound Behavioral Health Hospital (MultiCare / Virginia Mason Franciscan joint venture)", relationship: "joint_venture" },
+    { pattern: "DEACONESS FOUNDATION", entity: "Deaconess Foundation (MultiCare Inland Northwest)", relationship: "foundation", counties: ["Spokane"] },
+    { pattern: "GOOD SAMARITAN FOUNDATION", entity: "Good Samaritan Foundation (MultiCare, Puyallup)", relationship: "foundation", counties: ["Pierce"] },
     { pattern: "MULTICARE FOUNDATION", entity: "MultiCare Health Foundation", relationship: "foundation" },
     { pattern: "MULTICARE HEALTH FOUNDATION", entity: "MultiCare Health Foundation", relationship: "foundation" },
     { pattern: "MARY BRIDGE CHILDRENS FOUNDATION", entity: "Mary Bridge Children\u2019s Foundation", relationship: "foundation" }
@@ -4424,7 +4490,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (!pn) continue;
       if (p.counties && p.counties.length && county && !p.counties.map(normalizeName).includes(normalizeName(county))) continue;
       if (p.counties && p.counties.length && !county) {
-        if (pn.split(" ").length < 2) continue;
+        if (!/(MULTICARE|MULTI CARE|MARY BRIDGE|MHS )/.test(name)) continue;
       }
       if (containsToken(name, pn)) {
         const rank2 = RANK[p.relationship] ?? 9;

@@ -83,7 +83,7 @@ export const WAZA_ZONING = {
   url: 'https://services6.arcgis.com/tboeqGwETr5ppr5Q/arcgis/rest/services/WAZA_Prototype_Layers/FeatureServer/0',
   fields: { zoning: ['ZoneID'], zoning_description: ['ZoneName'] },
   jurisdictionField: 'Jurisdiction',
-  notes: 'Normalized statewide atlas of city and county zoning (2024–2025 vintage) used where the jurisdiction publishes no zoning service; codes can lag recent municipal code amendments.',
+  notes: 'Normalized statewide atlas of city and county zoning (2024–2025 vintage) used where the jurisdiction publishes no zoning service; codes can lag recent municipal code amendments. Commerce publishes the atlas under the State open-data terms (RCW 42.56.070(8) restricts commercial use of lists of individuals, which zoning polygons do not contain).',
 };
 
 const AUBURN_ZONING = {
@@ -191,7 +191,7 @@ const KING_ZONING = [
   },
   {
     id: 'kent-zoning',
-    confidence: 'confirmed',
+    confidence: 'likely',
     name: 'Zoning Districts (City of Kent)',
     publisher: 'City of Kent GIS',
     url: 'https://geoservices.kentwa.gov/public/rest/services/PUBLIC_PLANNING_ZoningDistricts/MapServer/0',
@@ -201,7 +201,7 @@ const KING_ZONING = [
   },
   {
     id: 'federal-way-zoning',
-    confidence: 'confirmed',
+    confidence: 'likely',
     name: 'Zoning (City of Federal Way)',
     publisher: 'City of Federal Way GIS',
     url: 'https://geoportal.cityoffederalway.com/res/rest/services/FW_Land/zoning/MapServer/0',
@@ -219,16 +219,6 @@ const KING_ZONING = [
     fields: { zoning: ['CURRZONE'], zoning_description: false },
     jurisdiction: 'King County (unincorporated)',
     notes: 'CURRZONE is the current zoning of unincorporated King County; city zoning comes from city layers or the statewide atlas.',
-  },
-  {
-    id: 'king-county-zoning-opendata',
-    confidence: 'likely',
-    name: 'King County zoning, unincorporated (open-data KingCo_Zoning)',
-    publisher: 'King County GIS Center',
-    url: 'https://gisdata.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/0',
-    fields: { zoning: ['CURRZONE'], zoning_description: false },
-    jurisdiction: 'King County (unincorporated)',
-    notes: 'Alternate host and layer index for the same unincorporated zoning data.',
   },
   WAZA_ZONING,
 ];
@@ -433,7 +423,8 @@ const TACOMA_FIELDS = {
   improvement_value: ['ImprovementValueCurrentYear', 'ImprovementValue', 'Improvement_Value', 'ImprovementValuePriorYear'],
   total_value: ['TotalMarketValueCurrentYear', 'TotalMarketValue', 'TotalMarketValuePriorYear'],
   land_acres: ['LandGrossAcres', 'Land_Acres'],
-  use_code: ['Use_Code', 'CurrentUseCodeCurrentYear'],
+  // CurrentUseCodeCurrentYear is the RCW 84.34 open-space / farm program code, not land use
+  use_code: ['Use_Code'],
   use_description: ['Landuse_Description', 'UseDescription'],
 };
 
@@ -878,12 +869,13 @@ export const PROVIDERS = [
         enrich: true,
         joinBy: 'ids',
         joinField: 'ASSESSOR_N',
-        confidence: 'confirmed',
-        name: 'Sales (Yakima County Assessor)',
+        confidence: 'likely',
+        name: 'Sales, recent assessment year (Yakima County Assessor)',
         publisher: 'Yakima County GIS / Assessor',
         url: 'https://maps.yakimacounty.us/server/rest/services/Assessor/Sales/FeatureServer/11',
         fields: { parcel_id: ['ASSESSOR_N'], owner: false, situs_address: false, sale_date: ['DOCUMENT_D'], sale_price: ['GROSS_SALE'], use_code: false, use_description: false },
-        notes: 'Recorded sales by assessor number (document date, gross sale price); joined by parcel-number list.',
+        notesFor: { sale_date: 'from the assessor\'s recent-year sales layer; older sales are not in this layer' },
+        notes: 'Recorded sales by assessor number (document date, gross sale price) for the assessor\'s most recent sales year only, so a parcel without a recent sale shows none; joined by parcel-number list.',
       },
       STATEWIDE_ENRICH,
     ],

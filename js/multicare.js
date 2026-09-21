@@ -47,6 +47,8 @@ export const DEFAULT_PATTERNS = [
   { pattern: 'NAVOS', entity: 'Navos (MultiCare Behavioral Health)', relationship: 'affiliate', counties: ['King'] },
   { pattern: 'GREATER LAKES MENTAL', entity: 'Greater Lakes Mental Healthcare (MultiCare Behavioral Health)', relationship: 'affiliate' },
   { pattern: 'WELLFOUND BEHAVIORAL', entity: 'Wellfound Behavioral Health Hospital (MultiCare / Virginia Mason Franciscan joint venture)', relationship: 'joint_venture' },
+  { pattern: 'DEACONESS FOUNDATION', entity: 'Deaconess Foundation (MultiCare Inland Northwest)', relationship: 'foundation', counties: ['Spokane'] },
+  { pattern: 'GOOD SAMARITAN FOUNDATION', entity: 'Good Samaritan Foundation (MultiCare, Puyallup)', relationship: 'foundation', counties: ['Pierce'] },
   { pattern: 'MULTICARE FOUNDATION', entity: 'MultiCare Health Foundation', relationship: 'foundation' },
   { pattern: 'MULTICARE HEALTH FOUNDATION', entity: 'MultiCare Health Foundation', relationship: 'foundation' },
   { pattern: 'MARY BRIDGE CHILDRENS FOUNDATION', entity: 'Mary Bridge Children’s Foundation', relationship: 'foundation' },
@@ -93,8 +95,9 @@ export function classifyOwner(ownerName, { patterns = DEFAULT_PATTERNS, county =
     if (!pn) continue;
     if (p.counties && p.counties.length && county && !p.counties.map(normalizeName).includes(normalizeName(county))) continue;
     if (p.counties && p.counties.length && !county) {
-      // county unknown: still allow but only for distinctive multi-word patterns
-      if (pn.split(' ').length < 2) continue;
+      // county unknown: a county-restricted pattern fires only when the name itself names
+      // MultiCare (WA has several other Valley, Memorial and Good Samaritan hospitals)
+      if (!/(MULTICARE|MULTI CARE|MARY BRIDGE|MHS )/.test(name)) continue;
     }
     if (containsToken(name, pn)) {
       // Most specific (longest) pattern wins; relationship rank breaks ties.

@@ -170,15 +170,27 @@ async function defaultStaticLoader(path, { signal } = {}) {
   if (/^https?:\/\//i.test(path)) url = path;
   else if (base && /^https?:/i.test(base)) url = new URL(path, base).href;
   else if (base && /^file:/i.test(base) && globalThis.__STATIC_DATA_BASE) url = new URL(path, globalThis.__STATIC_DATA_BASE).href;
+  // Own timeout: the shared cache promise is not bound to any caller's signal, so a stalled
+  // request must fail on its own instead of hanging every study that joins it.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new ArcGISError('Request timed out', { url, code: 'timeout' })), 30000);
+  const onAbort = () => ctrl.abort(signal.reason);
+  if (signal) signal.addEventListener('abort', onAbort, { once: true });
   let res;
   try {
-    res = await fetch(url, { signal, credentials: 'omit' });
-  } catch (err) {
-    if (signal?.aborted) throw new ArcGISError('Cancelled', { url, code: 'aborted', cause: err });
-    throw new ArcGISError(`Network error: ${err.message}`, { url, code: 'network', cause: err });
+    try {
+      res = await fetch(url, { signal: ctrl.signal, credentials: 'omit' });
+    } catch (err) {
+      if (ctrl.signal.reason instanceof ArcGISError) throw ctrl.signal.reason;
+      if (signal?.aborted) throw new ArcGISError('Cancelled', { url, code: 'aborted', cause: err });
+      throw new ArcGISError(`Network error: ${err.message}`, { url, code: 'network', cause: err });
+    }
+    if (!res.ok) throw new ArcGISError(`HTTP ${res.status}`, { url, code: res.status });
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
   }
-  if (!res.ok) throw new ArcGISError(`HTTP ${res.status}`, { url, code: res.status });
-  return res.json();
 }
 
 function loadStatic(loader, path, signal) {
@@ -248,7 +260,7 @@ function extractAttrs(props, prep, source) {
     exemption: cleanText(getField(props, m.exemption)),
     zoning: cleanText(getField(props, m.zoning)),
     zoning_description: cleanText(getField(props, m.zoning_description)),
-    sale_date: toISODate(getField(props, m.sale_date)),
+    sale_date: toISODate(getField(props, m.sale_date), { epochMs: m.sale_date ? prep.fieldTypes?.[m.sale_date.toLowerCase()] === 'esriFieldTypeDate' : false }),
     sale_price: toNumber(getField(props, m.sale_price)),
     sale_grantor: cleanText(getField(props, m.sale_grantor)),
     sale_deed_type: cleanText(getField(props, m.sale_deed_type)),
@@ -352,24 +364,51 @@ function staticAttrs(rec, source) {
 }
 
 const saleRank = (a) => `${a.sale_date || ''}|${String(a.sale_price ?? 0).padStart(15, '0')}`;
+// Fields that describe the same transaction as sale_date and move with it. A legal owner
+// that arrives on a row with a sale date is the buyer of that sale; a legal owner without a
+// sale date (a title-owner field) is an ordinary attribute.
+const VALID_SALE = ['valid_sale_date', 'valid_sale_price'];
+// Validity metadata supplied with a sale (assessor flags, recording number): always describes
+// the displayed sale, so it is replaced together with it.
+const SALE_META = ['sale_valid', 'sale_exclude_reason', 'sale_etn', 'sale_parcel_count'];
+const saleKeysOf = (row) => (row.sale_date && has(row.legal_owner) ? [...SALE_GROUP, 'legal_owner', ...SALE_META] : [...SALE_GROUP, ...SALE_META]);
+const pricedOf = (row) => (row.sale_date && has(row.sale_price) && row.sale_price > 0 ? { date: row.sale_date, price: row.sale_price } : null);
+
+/** Remembers the latest priced sale seen for a parcel so a $0 transfer can be qualified. */
+function trackPriced(cur, row) {
+  const cand = pricedOf(row);
+  if (cand && (!cur._bestPriced || cand.date > cur._bestPriced.date)) cur._bestPriced = cand;
+  if (has(row.valid_sale_date)) cur._validExplicit = true; // the source (Pierce extract) computed it
+  if (cur._validExplicit) return;
+  if (cur._bestPriced && cur._bestPriced.date !== cur.sale_date) {
+    cur.valid_sale_date = cur._bestPriced.date;
+    cur.valid_sale_price = cur._bestPriced.price;
+  } else {
+    delete cur.valid_sale_date;
+    delete cur.valid_sale_price;
+  }
+}
 
 /**
  * Stores one enrichment row under a parcel key. Sales tables carry several rows per
  * parcel: the most recent sale wins and other attributes fill gaps.
  */
-function putEnrich(byId, k, attrs) {
+export function putEnrich(byId, k, attrs) {
   const cur = byId.get(k);
   if (!cur) {
+    trackPriced(attrs, attrs);
     byId.set(k, attrs);
     return;
   }
   const newer = attrs.sale_date && (!cur.sale_date || saleRank(attrs) > saleRank(cur));
+  const saleKeys = new Set([...saleKeysOf(attrs), ...saleKeysOf(cur), ...VALID_SALE]);
   for (const [key, v] of Object.entries(attrs)) {
     if (key.startsWith('_')) continue;
-    if (SALE_GROUP.includes(key)) {
+    if (saleKeys.has(key)) {
       if (newer) {
         cur[key] = v;
         if (attrs._sourceFields[key]) cur._sourceFields[key] = attrs._sourceFields[key];
+        if (attrs._notes?.[key]) cur._notes[key] = attrs._notes[key];
       }
       continue;
     }
@@ -378,15 +417,18 @@ function putEnrich(byId, k, attrs) {
       if (attrs._sourceFields[key]) cur._sourceFields[key] = attrs._sourceFields[key];
     }
   }
+  if (newer) for (const key of [...VALID_SALE, ...SALE_META]) if (!has(attrs[key])) delete cur[key];
+  trackPriced(cur, attrs);
 }
 
-function mergeAttrs(primary, extras) {
+export function mergeAttrs(primary, extras) {
   const out = { ...primary, _sourceFields: { ...primary._sourceFields }, _notes: { ...(primary._notes || {}) } }; // keeps _rawCounty/_lookupCode
   for (const extra of extras) {
     const override = new Set(extra._override || []);
     const label = (k) => `${extra._sourceFields?.[k] || k} (${extra._sourceName})`;
+    const saleKeys = new Set([...saleKeysOf(extra), ...VALID_SALE]);
     for (const [k, v] of Object.entries(extra)) {
-      if (k.startsWith('_') || SALE_GROUP.includes(k)) continue;
+      if (k.startsWith('_') || saleKeys.has(k)) continue;
       const empty = !has(out[k]);
       if (has(v) && (empty || override.has(k))) {
         out[k] = v;
@@ -400,13 +442,28 @@ function mergeAttrs(primary, extras) {
       }
     }
     // A more recent (or overriding) sale replaces the sale group as a unit so that the
-    // date, price and grantor always describe the same transaction.
+    // date, price, grantor, deed type and buyer always describe the same transaction.
     if (extra.sale_date && (!out.sale_date || saleRank(extra) > saleRank(out) || override.has('sale_date'))) {
-      for (const k of SALE_GROUP) {
-        out[k] = has(extra[k]) ? extra[k] : null;
-        if (has(extra[k])) out._sourceFields[k] = label(k);
+      for (const k of saleKeysOf(extra)) {
+        if (has(extra[k])) {
+          out[k] = extra[k];
+          out._sourceFields[k] = label(k);
+        } else if (SALE_META.includes(k)) delete out[k];
+        else out[k] = null;
         if (extra._notes?.[k]) out._notes[k] = extra._notes[k];
       }
+      for (const k of VALID_SALE) {
+        if (has(extra[k])) out[k] = extra[k];
+        else delete out[k];
+      }
+      // The previous latest sale becomes the "last market sale" when the new one is unpriced.
+      if (!(extra.sale_price > 0) && primary.sale_price > 0 && primary.sale_date && !has(out.valid_sale_date)) {
+        out.valid_sale_date = primary.sale_date;
+        out.valid_sale_price = primary.sale_price;
+      }
+    } else if (extra.sale_date && has(out.sale_date) && !(out.sale_price > 0) && extra.sale_price > 0 && !has(out.valid_sale_date)) {
+      out.valid_sale_date = extra.sale_date;
+      out.valid_sale_price = extra.sale_price;
     }
   }
   return out;
@@ -545,9 +602,12 @@ function assignZoning(prepared, zoningSets) {
     if (p.merged.zoning) continue;
     const geom = p.f.geometry;
     if (!geom) continue;
-    const polys = polygonsOf(geom);
-    if (!polys.length) continue;
-    const pt = labelPoint(polys);
+    if (!p._label) {
+      const polys = polygonsOf(geom);
+      if (!polys.length) continue;
+      p._label = labelPoint(polys);
+    }
+    const pt = p._label;
     outer: for (const z of zoningSets) {
       for (const zf of z.features) {
         if (!pointInBBox(pt, zf.bbox) || !pointInGeometry(pt, zf.geometry)) continue;
@@ -813,9 +873,10 @@ export class ParcelService {
   }
 
   async runProvider(provider, bbox, county, records, report, signal, onlyCounties = null, extraZoning = []) {
-    // Zoning: the provider's jurisdiction layers, else the statewide atlas; deduplicated by id.
+    // Zoning: the jurisdiction layers handed down by a county fallback first, then the
+    // provider's own list (else the statewide atlas); deduplicated by id, first wins.
     const seenZoning = new Set();
-    const zoningSources = [...(provider.zoning || this.statewide?.zoning || []), ...extraZoning].filter((s) => !seenZoning.has(s.id) && seenZoning.add(s.id));
+    const zoningSources = [...extraZoning, ...(provider.zoning || this.statewide?.zoning || [])].filter((s) => !seenZoning.has(s.id) && seenZoning.add(s.id));
     const isBBoxEnrich = (s) => s.enrich && !s.static && s.joinBy !== 'ids';
     // Zoning districts and attribute-only join layers do not depend on which geometry layer
     // answers, so they run alongside the primary query.
@@ -827,6 +888,7 @@ export class ParcelService {
     let primaryPrep = null;
     let primaryFC = null;
     const errors = [];
+    const unusable = new Set(); // geometry sources that failed or answered empty this run
     const geometrySources = provider.sources.filter((s) => s.geometry);
     try {
       for (const source of geometrySources) {
@@ -834,6 +896,7 @@ export class ParcelService {
         try {
           const prep = await prepareSource(source, { signal });
           const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ['*'] });
+          if (!fc.features.length) unusable.add(source);
           if (!fc.features.length && !primary) {
             // keep as a last resort but try the next geometry source for actual coverage
             primary = source;
@@ -850,6 +913,7 @@ export class ParcelService {
           }
         } catch (err) {
           if (isAbort(err) || signal?.aborted) throw err;
+          unusable.add(source);
           errors.push({ source: source.name, url: source.url, error: errText(err) });
           report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, error: errText(err), county });
         }
@@ -874,9 +938,10 @@ export class ParcelService {
       prepared.push({ f, merged: attrs, featureCounty });
     }
 
-    // Geometry layers that double as attribute joins (other than the primary), then joins
-    // that need the parcel list: id-list tables and pre-built extracts.
-    const lateJobs = provider.sources.filter((s) => isBBoxEnrich(s) && s.geometry && s !== primary).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
+    // Geometry layers that double as attribute joins (other than the primary and any that
+    // just failed or answered empty), then joins that need the parcel list: id-list tables
+    // and pre-built extracts.
+    const lateJobs = provider.sources.filter((s) => isBBoxEnrich(s) && s.geometry && s !== primary && !unusable.has(s)).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
     const idEnrichers = provider.sources.filter((s) => s.enrich && s !== primary && (s.static || s.joinBy === 'ids'));
     const idJobs = prepared.length
       ? idEnrichers.map((s) => (s.static ? this.fetchStaticEnrich(provider, s, prepared, county, report, signal) : this.fetchIdEnrich(provider, s, prepared, county, report, signal)))
@@ -899,7 +964,19 @@ export class ParcelService {
       }
       await applyLookup(primary, prepared.map((p) => p.merged), signal);
     }
-    const zoned = zoningSets.length ? assignZoning(prepared, zoningSets) : 0;
+    let zoned = zoningSets.length ? assignZoning(prepared, zoningSets) : 0;
+    // Large parcels that touch the envelope can have their label point beyond the area the
+    // zoning layers were queried for; fetch those spots once more (without re-reporting).
+    if (zoningSources.length) {
+      const area = expandBBox(bbox, 400);
+      const outside = prepared.filter((p) => !p.merged.zoning && p._label && !pointInBBox(p._label, area));
+      if (outside.length) {
+        const pts = outside.map((p) => p._label);
+        const ptBBox = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))];
+        const extraSets = await this.fetchZoning(provider, zoningSources, ptBBox, county, () => {}, signal);
+        if (extraSets.length) zoned += assignZoning(outside, extraSets);
+      }
+    }
 
     let added = 0;
     for (const { f, merged, featureCounty } of prepared) {
