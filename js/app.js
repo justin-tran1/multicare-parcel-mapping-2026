@@ -670,7 +670,7 @@ function renderSources(statuses) {
     const roleLabel = { enrich: 'attribute join', static: 'assessor extract', zoning: 'zoning districts' }[s.role];
     let status;
     if (!s.ok) status = `<span class="status-err">unavailable</span> · ${escapeHtml(s.error || '')}`;
-    else if (s.role === 'zoning') status = `<span class="status-ok">online</span> · ${s.count} zoning polygon${s.count === 1 ? '' : 's'} in area${s.jurisdiction ? ` · ${escapeHtml(s.jurisdiction)}` : ''}${s.truncated ? ' (truncated)' : ''}`;
+    else if (s.role === 'zoning') status = `<span class="status-ok">online</span> · ${s.count} zoning polygon${s.count === 1 ? '' : 's'} in area${s.placeholders ? ` (${s.placeholders} city placeholder${s.placeholders === 1 ? '' : 's'} skipped)` : ''}${s.jurisdiction ? ` · ${escapeHtml(s.jurisdiction)}` : ''}${s.truncated ? ' (truncated)' : ''}`;
     else if (s.role === 'static') status = `<span class="status-ok">loaded</span> · ${s.joined ?? 0} parcel${s.joined === 1 ? '' : 's'} matched${s.generated ? ` · extract built ${escapeHtml(String(s.generated).slice(0, 10))}` : ''}${s.asOf ? ` from files dated ${escapeHtml(String(s.asOf).slice(0, 10))}` : ''}`;
     else status = `<span class="status-ok">online</span> · ${s.count} record${s.count === 1 ? '' : 's'} in query envelope${s.joined !== undefined ? ` · ${s.joined} parcels matched` : ''}${s.truncated ? ' (truncated)' : ''}${s.zoned ? ` · zoning assigned to ${s.zoned}` : ''}`;
     items.push(`<div class="source ${s.ok ? '' : 'err'}">

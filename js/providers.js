@@ -98,17 +98,34 @@ const AUBURN_ZONING = {
   notes: 'ZONINGNAME combines code and label, e.g. "C1 (Light Commercial)".',
 };
 
+// Pierce County cities, as the county's unincorporated zoning layer abbreviates them in its
+// placeholder polygons (observed live: "TACO" over the City of Tacoma).
+const PIERCE_CITY_PLACEHOLDERS = '^(TACO|TACOMA|PUYA|PUYALLUP|LAKE|LAKEWOOD|FIFE|UP|UNIV|SUMN|SUMNER|BONN|AUBN|AUBURN|GIGH|EDGE|MILT|MILTON|ORTG|ORTING|EATO|ROY|RUST|STEI|WILK|DUPT|DUPONT|BUCK|CARB|SOPR|PACI|FIRC|INC|INCORP|CITY|N/?A|NONE|UNZONED)$';
+
 const PIERCE_ZONING = [
   {
     id: 'tacoma-zoning-2025',
     confidence: 'likely',
     name: 'Zoning Districts 2025 (City of Tacoma Open Data)',
     publisher: 'City of Tacoma Planning & Development Services',
-    item: { id: 'e71809b0bb4e4365a478a46117583daf', layer: 0 },
+    // The hub item id is not stable, so the hosted feature service is found by portal search.
+    item: { query: 'title:"Zoning Districts 2025" Tacoma type:"Feature Service"', match: 'tacoma', layer: 0 },
     fields: { zoning: ['Zoning', 'ZONING', 'ZONE', 'Zone_Code', 'ZONECODE'] },
     jurisdiction: 'City of Tacoma',
     extent: [-122.62, 47.13, -122.3, 47.34],
-    notes: 'Hub item "Zoning Districts 2025 (Tacoma)"; the hosted layer URL is resolved from the item at run time.',
+    notes: 'Hub dataset "Zoning Districts 2025 (Tacoma)"; the hosted layer is located through an ArcGIS Online search at run time.',
+  },
+  {
+    id: 'tacoma-dart-zoning',
+    confidence: 'likely',
+    name: 'Zoning Districts (City of Tacoma DART map service)',
+    publisher: 'City of Tacoma GIS',
+    url: 'https://gis.cityoftacoma.org/arcgis/rest/services/DART/DARTzoning/MapServer',
+    layerMatch: '^Zoning Districts$',
+    fields: { zoning: ['Zoning', 'ZONING', 'ZONE', 'Zone_Code', 'ZONECODE'] },
+    jurisdiction: 'City of Tacoma',
+    extent: [-122.62, 47.13, -122.3, 47.34],
+    notes: 'City enterprise map service (Development & Permitting); the zoning layer is picked by name from the service.',
   },
   {
     id: 'puyallup-zoning',
@@ -151,8 +168,10 @@ const PIERCE_ZONING = [
     publisher: 'Pierce County Planning & Public Works',
     item: { id: '068b1c905eb1465ab61812e9a8d1032e', layer: 0 },
     fields: { zoning: ['ZON_CUR_CD', 'zon_cur_cd'], zoning_description: ['ZON_CUR_NA', 'zon_cur_na'] },
+    exclude: PIERCE_CITY_PLACEHOLDERS,
+    excludeDescription: '(city of|town of|incorporated|not zoned|unzoned)',
     jurisdiction: 'Pierce County (unincorporated)',
-    notes: 'Adopted zoning for unincorporated Pierce County only (ZON_CUR_CD code, ZON_CUR_NA name); city zoning is not included.',
+    notes: 'Adopted zoning for unincorporated Pierce County only (ZON_CUR_CD code, ZON_CUR_NA name); incorporated cities appear as placeholder polygons (e.g. TACO) that are skipped so city layers or the statewide atlas apply.',
   },
   WAZA_ZONING,
 ];
@@ -217,6 +236,8 @@ const KING_ZONING = [
     publisher: 'King County GIS Center / Permitting',
     url: 'https://gismaps.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/1',
     fields: { zoning: ['CURRZONE'], zoning_description: false },
+    exclude: '^(INC|INCORP|CITY|N/?A|NONE|UNZONED)$',
+    excludeDescription: '(city of|incorporated)',
     jurisdiction: 'King County (unincorporated)',
     notes: 'CURRZONE is the current zoning of unincorporated King County; city zoning comes from city layers or the statewide atlas.',
   },
