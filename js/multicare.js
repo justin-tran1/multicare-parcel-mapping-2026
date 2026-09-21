@@ -114,6 +114,41 @@ export function classifyOwner(ownerName, { patterns = DEFAULT_PATTERNS, county =
 
 const RANK = { owned: 0, foundation: 1, historical_name: 2, joint_venture: 3, affiliate: 4 };
 
+const EXEMPT_TEXT = /(non.?profit|hospital|partial ex|exempt|charit|religious|caregiver|medical)/i;
+
+/**
+ * Classifies a parcel record: taxpayer of record first, then the legal owner on the latest
+ * deed. A MultiCare business name marks occupancy, not ownership, except when the source
+ * withholds every owner name and the parcel carries a non-profit / hospital exemption: the
+ * exemption is granted to an owner-operator, so the match is reported as owned but flagged
+ * as inferred wherever it is shown.
+ * @returns {{multicare: object|null, business: object|null}}
+ */
+export function classifyParcel(rec, opts = {}) {
+  const o = { ...opts, county: opts.county ?? rec.county };
+  let mc = classifyOwner(rec.owner, o);
+  let matchedOn = mc ? (rec.ownerSource === 'legal' ? 'legal owner (deed)' : 'taxpayer of record') : '';
+  let deedDiffers = false;
+  let inferred = false;
+  if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
+    mc = classifyOwner(rec.legalOwner, o);
+    if (mc) matchedOn = 'legal owner (deed)';
+  } else if (mc && rec.ownerSource === 'taxpayer' && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, o)) {
+    deedDiffers = true;
+    matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
+  }
+  const business = rec.businessName ? classifyOwner(rec.businessName, o) : null;
+  if (!mc && business && !rec.owner && !rec.legalOwner && EXEMPT_TEXT.test(rec.exemption || '')) {
+    mc = business;
+    matchedOn = `business name "${rec.businessName}" on a tax-exempt parcel (${rec.exemption}); owner name withheld by the source, ownership inferred`;
+    inferred = true;
+  }
+  return {
+    multicare: mc ? { ...mc, matchedOn, deedDiffers, inferred, label: inferred ? `${mc.label} (inferred)` : mc.label } : null,
+    business,
+  };
+}
+
 /** Parses user-entered extra patterns: one per line, optional "| relationship" suffix. */
 export function parseUserPatterns(text) {
   const out = [];

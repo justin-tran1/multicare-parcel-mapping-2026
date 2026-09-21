@@ -109,7 +109,7 @@ const PIERCE_ZONING = [
     name: 'Zoning Districts 2025 (City of Tacoma Open Data)',
     publisher: 'City of Tacoma Planning & Development Services',
     // The hub item id is not stable, so the hosted feature service is found by portal search.
-    item: { query: 'title:"Zoning Districts 2025" Tacoma type:"Feature Service"', match: 'tacoma', layer: 0 },
+    item: { query: 'Zoning Districts Tacoma type:"Feature Service"', match: 'zoning.*tacoma|tacoma.*zoning', layer: 0 },
     fields: { zoning: ['Zoning', 'ZONING', 'ZONE', 'Zone_Code', 'ZONECODE'] },
     jurisdiction: 'City of Tacoma',
     extent: [-122.62, 47.13, -122.3, 47.34],

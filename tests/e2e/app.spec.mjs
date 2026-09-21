@@ -75,7 +75,7 @@ test.describe('radius study', () => {
     expect(errors, `page errors: ${errors.join('\n')}`).toEqual([]);
     expect(log.tacoma.some((r) => r.url.includes('/query'))).toBe(true);
     expect(log.pierce.some((r) => r.params.returnGeometry === 'false')).toBe(true);
-    expect(log.searches.some((q) => /Zoning Districts 2025/.test(q))).toBe(true);
+    expect(log.searches.some((q) => /Zoning Districts Tacoma/.test(q))).toBe(true);
     expect(log.items).toContain('068b1c905eb1465ab61812e9a8d1032e');
     expect(log.extract.some((u) => u.endsWith('manifest.json'))).toBe(true);
     expect(log.extract.some((u) => u.endsWith('shards/2000.json'))).toBe(true);

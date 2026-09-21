@@ -8,7 +8,7 @@ import {
 import { ParcelService } from './parcels.js';
 import { loadData } from './data.js';
 import { geocode, reverseGeocode } from './geocode.js';
-import { classifyOwner, DEFAULT_PATTERNS, parseUserPatterns } from './multicare.js';
+import { classifyParcel, DEFAULT_PATTERNS, parseUserPatterns } from './multicare.js';
 import { loadJSON, saveJSON } from './storage.js';
 import { escapeHtml, formatCurrency, formatAcres, downloadText, slugify } from './format.js';
 import { ResultsTable, rowClass, valueNote, formatSaleDate } from './table.js';
@@ -129,23 +129,11 @@ function markOf(rec) {
 }
 
 function classifyRecord(rec) {
-  const opts = { patterns: state.patterns, county: rec.county };
-  // Ownership: the taxpayer of record first, then the legal owner on the latest deed.
-  let mc = classifyOwner(rec.owner, opts);
-  let matchedOn = mc ? (rec.ownerSource === 'legal' ? 'legal owner (deed)' : 'taxpayer of record') : '';
-  let deedDiffers = false;
-  if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
-    mc = classifyOwner(rec.legalOwner, opts);
-    if (mc) matchedOn = 'legal owner (deed)';
-  } else if (mc && rec.ownerSource === 'taxpayer' && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, opts)) {
-    // MultiCare pays the tax bill but the latest deed names someone else (ground lease,
-    // landlord): say so wherever the match is shown.
-    deedDiffers = true;
-    matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
-  }
-  rec.multicare = mc ? { ...mc, matchedOn, deedDiffers } : null;
-  // Occupancy: a MultiCare business name on the parcel does not imply ownership.
-  const biz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
+  // Ownership: taxpayer of record, then the legal owner on the latest deed, then (flagged as
+  // inferred) a MultiCare business name on a tax-exempt parcel whose owner names are withheld.
+  const { multicare, business: biz } = classifyParcel(rec, { patterns: state.patterns, county: rec.county });
+  rec.multicare = multicare;
+  // Occupancy: a MultiCare business name on the parcel does not by itself imply ownership.
   const mark = markOf(rec);
   const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
   rec.occupied = Boolean(mark) || Boolean(loc) || Boolean(biz);
@@ -984,6 +972,7 @@ function wireControls() {
     if (recs.some((r) => r.value !== null && r.valueKind !== 'taxable')) notes.push('Values are total market or land plus improvement values where the assessor publishes no taxable value.');
     if (recs.some((r) => r.acresSource === 'gis')) notes.push('Some acreages are computed from the parcel polygon.');
     if (recs.some((r) => r.multicare?.deedDiffers)) notes.push('MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.');
+    if (recs.some((r) => r.multicare?.inferred)) notes.push('Where the source withholds owner names, MultiCare ownership is inferred from a MultiCare business name on a tax-exempt parcel.');
     printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
