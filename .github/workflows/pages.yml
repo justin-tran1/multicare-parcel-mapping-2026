@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    # Pierce County refreshes its assessor data downloads weekly; rebuild the extract Mondays.
+    - cron: '17 13 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -31,6 +34,27 @@ jobs:
           mkdir -p site
           cp -r index.html css js data vendor site/
           cp dist/index.html site/standalone.html
+      - name: Build Pierce County assessor extract (legal owner, sales, values)
+        # The county's weekly bulk files are fetched from GitHub's runners into a scratch
+        # directory; only a complete build replaces the extract in the site.
+        id: extract
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          node scripts/build-pierce-assessor.mjs --out extract-build/pierce
+          rm -rf site/data/assessor/pierce
+          mkdir -p site/data/assessor
+          mv extract-build/pierce site/data/assessor/pierce
+      - name: Keep the previously published extract when the rebuild failed
+        if: steps.extract.outcome == 'failure'
+        continue-on-error: true
+        run: node scripts/fetch-published-extract.mjs --out site/data/assessor/pierce
+      - name: Validate the Allenmore reference study against live services
+        continue-on-error: true
+        timeout-minutes: 15
+        run: node scripts/validate-allenmore.mjs --static-base site/
       - uses: actions/configure-pages@v5
         with:
           enablement: true

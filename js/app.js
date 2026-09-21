@@ -1,6 +1,6 @@
 // Application controller: map, pin/ring interaction, live parcel loading, numbering,
 // MultiCare shading, results table, sharing and printing.
-import { CBRE, RING_DEFAULTS, PARCEL_STYLE, MIN_PARCEL_ZOOM, MAX_RING_RADIUS_M, BASEMAPS, DEFAULT_BASEMAP, WA_BBOX } from './config.js';
+import { CBRE, RING_DEFAULTS, PARCEL_STYLE, MIN_PARCEL_ZOOM, MAX_RING_RADIUS_M, BASEMAPS, DEFAULT_BASEMAP, WA_BBOX, SITE_BASE } from './config.js';
 import {
   toMeters, fromMeters, makeProjector, circlePolygon, circleBBox, projectPolygons, distanceFromOriginToPolygons,
   labelPoint, pointInGeometry, UNIT_LABELS, formatDistance, expandBBox,
@@ -11,7 +11,7 @@ import { geocode, reverseGeocode } from './geocode.js';
 import { classifyOwner, DEFAULT_PATTERNS, parseUserPatterns } from './multicare.js';
 import { loadJSON, saveJSON } from './storage.js';
 import { escapeHtml, formatCurrency, formatAcres, downloadText, slugify } from './format.js';
-import { ResultsTable, rowClass, valueNote } from './table.js';
+import { ResultsTable, rowClass, valueNote, formatSaleDate } from './table.js';
 import { printExhibit } from './print.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -129,12 +129,30 @@ function markOf(rec) {
 }
 
 function classifyRecord(rec) {
-  rec.multicare = classifyOwner(rec.owner, { patterns: state.patterns, county: rec.county });
+  const opts = { patterns: state.patterns, county: rec.county };
+  // Ownership: the taxpayer of record first, then the legal owner on the latest deed.
+  let mc = classifyOwner(rec.owner, opts);
+  let matchedOn = mc ? (rec.ownerSource === 'legal' ? 'legal owner (deed)' : 'taxpayer of record') : '';
+  let deedDiffers = false;
+  if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
+    mc = classifyOwner(rec.legalOwner, opts);
+    if (mc) matchedOn = 'legal owner (deed)';
+  } else if (mc && rec.ownerSource === 'taxpayer' && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, opts)) {
+    // MultiCare pays the tax bill but the latest deed names someone else (ground lease,
+    // landlord): say so wherever the match is shown.
+    deedDiffers = true;
+    matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
+  }
+  rec.multicare = mc ? { ...mc, matchedOn, deedDiffers } : null;
+  // Occupancy: a MultiCare business name on the parcel does not imply ownership.
+  const biz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
   const mark = markOf(rec);
   const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-  rec.occupied = Boolean(mark) || Boolean(loc);
+  rec.occupied = Boolean(mark) || Boolean(loc) || Boolean(biz);
   if (mark) rec.occupiedBy = typeof mark === 'string' ? mark : 'Marked by user';
-  else rec.occupiedBy = loc ? loc.name : '';
+  else if (loc) rec.occupiedBy = loc.name;
+  else if (biz) rec.occupiedBy = `${rec.businessName} (business name on the assessor roll)`;
+  else rec.occupiedBy = '';
 }
 
 // ---------------------------------------------------------------------------
@@ -261,19 +279,43 @@ function restyleAll() {
 // ---------------------------------------------------------------------------
 function popupHtml(rec) {
   const badges = [];
-  if (rec.multicare) badges.push(`<span class="badge ${isOwnedRelationship(rec.multicare.relationship) ? '' : 'aff'}" title="${escapeHtml(rec.multicare.entity)}">${escapeHtml(rec.multicare.label)}</span>`);
+  if (rec.multicare) badges.push(`<span class="badge ${isOwnedRelationship(rec.multicare.relationship) ? '' : 'aff'}" title="${escapeHtml(rec.multicare.entity)}${rec.multicare.matchedOn ? ` · matched on ${escapeHtml(rec.multicare.matchedOn)}` : ''}">${escapeHtml(rec.multicare.label)}</span>`);
   if (rec.occupied) badges.push(`<span class="badge occ" title="${escapeHtml(rec.occupiedBy || '')}">MultiCare occupied</span>`);
-  const rows = [
-    ['Owner', rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` <span class="muted">(${escapeHtml(rec.ownerNote)})</span>` : '') : '<span class="muted">not published by this source</span>'],
+  const muted = (t) => `<span class="muted">${escapeHtml(t)}</span>`;
+  const rows = [];
+  const noTaxpayer = rec.ownerPublished ? 'blank in the assessor record' : 'not published by this source';
+  if (rec.ownerSource === 'legal') {
+    rows.push(['Owner (deed grantee)', escapeHtml(rec.owner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : '')]);
+    rows.push(['Taxpayer', muted(noTaxpayer)]);
+  } else {
+    rows.push(['Taxpayer / owner', rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` ${muted(`(${rec.ownerNote})`)}` : '') : muted(noTaxpayer)]);
+    rows.push(['Legal owner (deed)', rec.legalOwner ? escapeHtml(rec.legalOwner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : '') : muted('not available')]);
+  }
+  if (rec.businessName) rows.push(['Business on parcel', `${escapeHtml(rec.businessName)} ${muted('(occupant per assessor, not ownership)')}`]);
+  rows.push(
     ['Parcel #', escapeHtml(rec.parcelId || '')],
     ['Address', escapeHtml([rec.situs, rec.city].filter(Boolean).join(', '))],
     [rec.valueKind === 'taxable' ? 'Taxable value' : 'Value', rec.value !== null ? `${formatCurrency(rec.value)}${rec.valueKind !== 'taxable' ? ` <span class="muted">(${escapeHtml(valueNote(rec))})</span>` : ''}` : '<span class="muted">n/a</span>'],
-  ];
+  );
   if (rec.landValue !== null && rec.landValue !== undefined) rows.push(['Land value', formatCurrency(rec.landValue)]);
   if (rec.improvementValue !== null && rec.improvementValue !== undefined) rows.push(['Improvements', formatCurrency(rec.improvementValue)]);
   if (rec.totalValue !== null && rec.totalValue !== undefined && rec.valueKind !== 'total') rows.push(['Total market value', formatCurrency(rec.totalValue)]);
+  if (rec.exemption) rows.push(['Exemption', escapeHtml(rec.exemption)]);
   rows.push(['Land', `${formatAcres(rec.acres)} ac${rec.acresSource === 'gis' ? ' <span class="muted">(from geometry)</span>' : rec.acresSource === 'sqft' ? ' <span class="muted">(from lot sq ft)</span>' : ''}`]);
   rows.push(['Use', escapeHtml(rec.useText || rec.useCode || 'n/a') + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : '')]);
+  rows.push(['Zoning', rec.zoning
+    ? `<strong>${escapeHtml(rec.zoning)}</strong>${rec.zoningDescription ? ` ${escapeHtml(rec.zoningDescription)}` : ''} ${muted(`(${[rec.zoningJurisdiction, rec.zoningSource === 'assessor' ? 'assessor attribute' : rec.zoningSource].filter(Boolean).join(', ')})`)}`
+    : muted('not available for this parcel')]);
+  if (rec.saleDate) {
+    const parts = [escapeHtml(formatSaleDate(rec.saleDate))];
+    if (rec.salePrice !== null && rec.salePrice !== undefined) parts.push(formatCurrency(rec.salePrice));
+    if (rec.saleDeedType) parts.push(escapeHtml(rec.saleDeedType));
+    let sale = parts.join(' · ');
+    if (rec.saleGrantor) sale += `<br>${muted(`from ${rec.saleGrantor}`)}`;
+    if (rec.saleValid === false) sale += `<br>${muted(`not an arm's-length market sale per the assessor${rec.saleExcludeReason ? `: ${rec.saleExcludeReason}` : ''}`)}`;
+    if (rec.validSaleDate && rec.validSaleDate !== rec.saleDate) sale += `<br>${muted(`last market sale ${formatSaleDate(rec.validSaleDate)}${rec.validSalePrice !== null && rec.validSalePrice !== undefined ? ` · ${formatCurrency(rec.validSalePrice)}` : ''}`)}`;
+    rows.push(['Last sale', sale]);
+  } else rows.push(['Last sale', muted('not available from this source')]);
   if (rec.county) rows.push(['County', escapeHtml(rec.county)]);
   if (rec.distanceM !== null && rec.distanceM !== undefined) rows.push(['Distance', rec.distanceM === 0 ? 'contains the pin' : formatDistance(rec.distanceM, state.ring.unit)]);
   const marked = Boolean(markOf(rec));
@@ -285,7 +327,7 @@ function popupHtml(rec) {
       <button class="btn btn-outline small" type="button" data-action="toggle-occupied" data-key="${escapeHtml(rec.key)}">${marked ? 'Unmark occupied' : 'Mark MultiCare occupied'}</button>
       <button class="btn btn-outline small" type="button" data-action="zoom" data-key="${escapeHtml(rec.key)}">Zoom</button>
     </div>
-    <div class="src">Source: ${escapeHtml(rec.sourceName)}${rec.sourceFields?.owner ? ` · owner field: ${escapeHtml(rec.sourceFields.owner)}` : ''}${rec.sourceFields?.taxable_value ? ` · value field: ${escapeHtml(rec.sourceFields.taxable_value)}` : ''}</div>
+    <div class="src">Source: ${escapeHtml(rec.sourceName)}${rec.sourceFields?.owner ? ` · owner field: ${escapeHtml(rec.sourceFields.owner)}` : ''}${rec.sourceFields?.legal_owner ? ` · legal owner: ${escapeHtml(rec.sourceFields.legal_owner)}` : ''}${rec.sourceFields?.taxable_value ? ` · value field: ${escapeHtml(rec.sourceFields.taxable_value)}` : ''}${rec.sourceFields?.sale_date ? ` · sale: ${escapeHtml(rec.sourceFields.sale_date)}` : ''}</div>
   </div>`;
 }
 
@@ -622,14 +664,23 @@ function renderSources(statuses) {
     seen.add(k);
     const fm = s.fieldMap || {};
     const mapRows = s.ok ? [
-      ['owner', 'Owner'], ['taxable_value', 'Taxable value'], ['total_value', 'Total value'], ['land_acres', 'Acres'], ['land_sqft', 'Lot sq ft'], ['use_description', 'Use'], ['use_code', 'Use code'], ['parcel_id', 'Parcel #'],
-    ].filter(([a]) => fm[a]).map(([a, label]) => `${label} ← <code>${escapeHtml(fm[a])}</code>`) : [];
+      ['owner', 'Owner'], ['legal_owner', 'Legal owner'], ['business_name', 'Business name'], ['taxable_value', 'Taxable value'], ['total_value', 'Total value'], ['land_acres', 'Acres'], ['land_sqft', 'Lot sq ft'],
+      ['use_description', 'Use'], ['use_code', 'Use code'], ['zoning', 'Zoning'], ['zoning_description', 'Zoning desc.'], ['sale_date', 'Sale date'], ['sale_price', 'Sale price'], ['sale_grantor', 'Grantor'], ['parcel_id', 'Parcel #'],
+    ].filter(([a]) => fm[a]).map(([a, label]) => `${label} ← <code>${escapeHtml(typeof fm[a] === 'string' ? fm[a] : String(fm[a]))}</code>`) : [];
+    const roleLabel = { enrich: 'attribute join', static: 'assessor extract', zoning: 'zoning districts' }[s.role];
+    let status;
+    if (!s.ok) status = `<span class="status-err">unavailable</span> · ${escapeHtml(s.error || '')}`;
+    else if (s.role === 'zoning') status = `<span class="status-ok">online</span> · ${s.count} zoning polygon${s.count === 1 ? '' : 's'} in area${s.jurisdiction ? ` · ${escapeHtml(s.jurisdiction)}` : ''}${s.truncated ? ' (truncated)' : ''}`;
+    else if (s.role === 'static') status = `<span class="status-ok">loaded</span> · ${s.joined ?? 0} parcel${s.joined === 1 ? '' : 's'} matched${s.generated ? ` · extract built ${escapeHtml(String(s.generated).slice(0, 10))}` : ''}${s.asOf ? ` from files dated ${escapeHtml(String(s.asOf).slice(0, 10))}` : ''}`;
+    else status = `<span class="status-ok">online</span> · ${s.count} record${s.count === 1 ? '' : 's'} in query envelope${s.joined !== undefined ? ` · ${s.joined} parcels matched` : ''}${s.truncated ? ' (truncated)' : ''}${s.zoned ? ` · zoning assigned to ${s.zoned}` : ''}`;
     items.push(`<div class="source ${s.ok ? '' : 'err'}">
-      <div class="name">${escapeHtml(s.providerName || s.provider)}${s.role === 'enrich' ? ' <span class="muted">(attribute join)</span>' : ''}</div>
-      <div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></div>
-      <div>${s.ok ? `<span class="status-ok">online</span> · ${s.count} record${s.count === 1 ? '' : 's'} in query envelope${s.truncated ? ' (truncated)' : ''}` : `<span class="status-err">unavailable</span> · ${escapeHtml(s.error || '')}`}</div>
+      <div class="name">${escapeHtml(s.providerName || s.provider)}${roleLabel ? ` <span class="muted">(${roleLabel})</span>` : ''}</div>
+      <div>${/^https?:\/\//i.test(String(s.url || '')) ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a>` : escapeHtml(s.source)}</div>
+      <div>${status}</div>
       ${mapRows.length ? `<div class="fmap">${mapRows.join(' · ')}</div>` : ''}
-      ${s.ok && !fm.owner && s.role === 'primary' ? '<div class="fmap">This layer does not publish owner names.</div>' : ''}
+      ${s.ok && s.note && s.role !== 'primary' ? `<div class="fmap">${escapeHtml(s.note)}</div>` : ''}
+      ${s.ok && !fm.owner && s.role === 'primary' ? '<div class="fmap">This layer does not publish taxpayer names; the legal owner from the latest deed is shown where available.</div>' : ''}
+      ${s.ok && s.role === 'primary' && s.count > 0 && s.zoned === 0 && !fm.zoning ? '<div class="fmap">No zoning-district polygon covered these parcels.</div>' : ''}
       ${s.confidence && s.confidence !== 'confirmed' ? `<div class="fmap">Endpoint ${escapeHtml(s.confidence === 'likely' ? 'documented but not independently verified' : 'unverified; schema resolved at runtime')}.</div>` : ''}
     </div>`);
   }
@@ -882,7 +933,8 @@ function wireControls() {
   // Results controls
   const bindCol = (id, key) => {
     const el = $(id);
-    el.checked = Boolean(state.settings.cols[key]);
+    // columns added later default to the table's own default until the user toggles them
+    el.checked = key in state.settings.cols ? Boolean(state.settings.cols[key]) : Boolean(state.table.optional[key]);
     state.table.optional[key] = el.checked;
     el.addEventListener('change', () => {
       state.settings.cols[key] = el.checked;
@@ -891,8 +943,11 @@ function wireControls() {
       state.table.render();
     });
   };
+  bindCol('#col-legal', 'legalOwner');
   bindCol('#col-parcel', 'parcelId');
   bindCol('#col-address', 'situs');
+  bindCol('#col-zoning', 'zoning');
+  bindCol('#col-sale', 'sale');
   bindCol('#col-distance', 'distance');
   $('#btn-renumber').addEventListener('click', () => {
     const order = state.table.orderedKeys();
@@ -919,8 +974,17 @@ function wireControls() {
   $('#btn-print').addEventListener('click', () => {
     const { title, subtitle } = currentTitles();
     const counties = state.study.counties.join(', ');
-    const sources = [...new Set(state.study.statuses.filter((s) => s.ok).map((s) => s.source))].join('; ');
-    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.` });
+    const byRole = (roles) => [...new Set(state.study.statuses.filter((s) => s.ok && s.count !== 0 && roles.includes(s.role || 'primary')).map((s) => s.source))].join('; ');
+    const sources = byRole(['primary', 'enrich', 'static']);
+    const zoning = [...new Set(state.study.records.map((r) => r.zoningSource).filter((z) => z && z !== 'assessor'))].join('; ');
+    // The printed table drops the footnote markers, so state their qualifications once.
+    const recs = state.study.records;
+    const notes = [];
+    if (recs.some((r) => r.ownerSource === 'legal')) notes.push('Where the taxpayer name is withheld, the owner shown is the grantee on the most recent recorded deed.');
+    if (recs.some((r) => r.value !== null && r.valueKind !== 'taxable')) notes.push('Values are total market or land plus improvement values where the assessor publishes no taxable value.');
+    if (recs.some((r) => r.acresSource === 'gis')) notes.push('Some acreages are computed from the parcel polygon.');
+    if (recs.some((r) => r.multicare?.deedDiffers)) notes.push('MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.');
+    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
 }
@@ -978,6 +1042,8 @@ async function main() {
   state.table.render();
   try {
     const counties = await loadData('wa_counties');
+    // Opened from disk (standalone build): pre-built assessor extracts come from the site.
+    if (location.protocol === 'file:') window.__STATIC_DATA_BASE = SITE_BASE;
     state.service = new ParcelService({ counties });
   } catch (err) {
     toast(`Failed to load county index: ${err.message}`, { error: true, ms: 8000 });

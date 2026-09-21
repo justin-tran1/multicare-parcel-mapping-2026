@@ -10,6 +10,10 @@
     { "name": "MultiCare Capital Medical Center", "address": "3900 Capital Mall Dr SW", "city": "Olympia", "county": "Thurston", "type": "Hospital" },
     { "name": "MultiCare Deaconess Hospital", "address": "800 W 5th Ave", "city": "Spokane", "county": "Spokane", "type": "Hospital" },
     { "name": "MultiCare Valley Hospital", "address": "12606 E Mission Ave", "city": "Spokane Valley", "county": "Spokane", "type": "Hospital" },
-    { "name": "MultiCare Yakima Memorial Hospital", "address": "2811 Tieton Dr", "city": "Yakima", "county": "Yakima", "type": "Hospital" }
+    { "name": "MultiCare Yakima Memorial Hospital", "address": "2811 Tieton Dr", "city": "Yakima", "county": "Yakima", "type": "Hospital" },
+    { "name": "Wellfound Behavioral Health Hospital (MultiCare / Virginia Mason Franciscan joint venture)", "address": "3402 S 19th St", "city": "Tacoma", "county": "Pierce", "type": "Hospital (joint venture)" },
+    { "name": "Navos West Seattle Campus (MultiCare Behavioral Health)", "address": "2600 SW Holden St", "city": "Seattle", "county": "King", "type": "Behavioral health (affiliate)" },
+    { "name": "Navos Mental Health & Wellness Center, Burien (MultiCare Behavioral Health)", "address": "1210 SW 136th St", "city": "Burien", "county": "King", "type": "Behavioral health (affiliate)" },
+    { "name": "Greater Lakes Mental Healthcare (MultiCare Behavioral Health)", "address": "9330 59th Ave SW", "city": "Lakewood", "county": "Pierce", "type": "Behavioral health (affiliate)" }
   ]
 }

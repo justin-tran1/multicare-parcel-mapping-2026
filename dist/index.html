@@ -876,6 +876,7 @@ table.parcels tbody tr { cursor: pointer; }
 table.parcels tbody tr:hover, table.parcels tbody tr.hl { background: #fff3ec; }
 table.parcels tfoot td { font-weight: 700; background: var(--panel-tint); border-top: 2px solid var(--cbre-green); }
 table.parcels .sup { color: var(--text-muted); font-size: 10px; }
+table.parcels td.zoning { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .empty { padding: 18px; color: var(--text-muted); text-align: center; }
 
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--dark-green); color: #fff; padding: 10px 16px; border-radius: 8px; z-index: 2000; box-shadow: 0 4px 16px rgba(0,0,0,0.3); max-width: 90vw; }
@@ -1028,7 +1029,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
       <section class="panel" aria-labelledby="h-mc">
         <h2 id="h-mc">4. MultiCare matching</h2>
-        <p class="hint">Owner and taxpayer names are matched against MultiCare Health System and its hospitals, clinics, foundations, and joint ventures. Add extra name fragments below, one per line (optionally <code>| affiliate</code>, <code>| joint_venture</code>).</p>
+        <p class="hint">Taxpayer and legal-owner (deed) names are matched against MultiCare Health System and its hospitals, clinics, foundations, and joint ventures; a MultiCare business name on a parcel marks it occupied, not owned. Add extra name fragments below, one per line (optionally <code>| affiliate</code>, <code>| joint_venture</code>).</p>
         <textarea id="extra-patterns" rows="3" placeholder="e.g. HEALTHCARE REALTY | affiliate"></textarea>
         <p class="hint" id="mc-summary"></p>
       </section>
@@ -1052,7 +1053,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
       <section class="panel small" aria-labelledby="h-help">
         <h2 id="h-help">About</h2>
-        <p class="hint">Radius rings are measured on the WGS84 ellipsoid. A parcel is listed when any part of it touches or falls within the ring. Values marked * are total market or land + improvement values where the assessor does not publish a taxable value; acreage marked † is computed from the parcel polygon. Verify with the county assessor before relying on any figure.</p>
+        <p class="hint">Radius rings are measured on the WGS84 ellipsoid. A parcel is listed when any part of it touches or falls within the ring. Values marked * are total market or land + improvement values where the assessor does not publish a taxable value; acreage marked † is computed from the parcel polygon. Owners marked § are the grantee on the latest recorded deed because the source withholds (or left blank) the taxpayer name; names marked ‡ carry a source caveat shown on hover; sales and prices marked ~ were not treated as arm’s-length market sales by the assessor. Zoning is read from the jurisdiction’s zoning-district layer at the parcel’s label point. Verify with the county assessor before relying on any figure.</p>
       </section>
     </aside>
 
@@ -1070,8 +1071,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           <div class="results-title" id="results-title">Parcels within ring</div>
           <div class="results-meta" id="results-meta">Drop a pin to list parcels.</div>
           <div class="results-actions">
+            <label class="check small"><input id="col-legal" type="checkbox" checked> Legal owner</label>
             <label class="check small"><input id="col-parcel" type="checkbox"> Parcel #</label>
             <label class="check small"><input id="col-address" type="checkbox"> Address</label>
+            <label class="check small"><input id="col-zoning" type="checkbox" checked> Zoning</label>
+            <label class="check small"><input id="col-sale" type="checkbox" checked> Last sale</label>
             <label class="check small"><input id="col-distance" type="checkbox"> Distance</label>
             <button class="btn btn-outline small" type="button" id="btn-renumber" disabled title="Assign IDs in the current table order">Renumber by sort</button>
             <button class="icon-btn" type="button" id="btn-results-toggle" aria-label="Collapse table" title="Collapse table">&#9660;</button>
@@ -1104,7 +1108,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     { "name": "MultiCare Capital Medical Center", "address": "3900 Capital Mall Dr SW", "city": "Olympia", "county": "Thurston", "type": "Hospital" },
     { "name": "MultiCare Deaconess Hospital", "address": "800 W 5th Ave", "city": "Spokane", "county": "Spokane", "type": "Hospital" },
     { "name": "MultiCare Valley Hospital", "address": "12606 E Mission Ave", "city": "Spokane Valley", "county": "Spokane", "type": "Hospital" },
-    { "name": "MultiCare Yakima Memorial Hospital", "address": "2811 Tieton Dr", "city": "Yakima", "county": "Yakima", "type": "Hospital" }
+    { "name": "MultiCare Yakima Memorial Hospital", "address": "2811 Tieton Dr", "city": "Yakima", "county": "Yakima", "type": "Hospital" },
+    { "name": "Wellfound Behavioral Health Hospital (MultiCare / Virginia Mason Franciscan joint venture)", "address": "3402 S 19th St", "city": "Tacoma", "county": "Pierce", "type": "Hospital (joint venture)" },
+    { "name": "Navos West Seattle Campus (MultiCare Behavioral Health)", "address": "2600 SW Holden St", "city": "Seattle", "county": "King", "type": "Behavioral health (affiliate)" },
+    { "name": "Navos Mental Health & Wellness Center, Burien (MultiCare Behavioral Health)", "address": "1210 SW 136th St", "city": "Burien", "county": "King", "type": "Behavioral health (affiliate)" },
+    { "name": "Greater Lakes Mental Healthcare (MultiCare Behavioral Health)", "address": "9330 59th Ave SW", "city": "Lakewood", "county": "Pierce", "type": "Behavioral health (affiliate)" }
   ]
 }
 </script>
@@ -1162,6 +1170,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   };
   var MIN_PARCEL_ZOOM = 15;
   var MAX_RING_RADIUS_M = 8047;
+  var SITE_BASE = "https://justin-tran1.github.io/multicare-parcel-mapping-2026/";
   var BASEMAPS = [
     {
       id: "carto-light",
@@ -1770,7 +1779,16 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     "use_code",
     "use_description",
     "assessor_link",
-    "county"
+    "county",
+    "legal_owner",
+    "zoning",
+    "zoning_description",
+    "sale_date",
+    "sale_price",
+    "sale_grantor",
+    "sale_deed_type",
+    "business_name",
+    "exemption"
   ];
   var HEURISTICS = {
     parcel_id: {
@@ -1779,14 +1797,16 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       prefer: /^(pin|apn|parcel|taxparcel|tax_?parcel|taxparcelnumber|parcelid|parcel_?(id|no|num|number|nbr)|parcel_id_nr|pid|pid_num|prop_?id)$/i
     },
     owner: {
-      include: /(taxpayer|owner|ownr|deed_?holder|tax_?payer)/i,
-      exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of)/i,
+      include: /(taxpayer|owner|ownr|tax_?payer)/i,
+      // title/legal/deed-holder fields belong to legal_owner
+      exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of|title|legal|deed|grantee|record)/i,
       prefer: /name/i,
       deprioritize: /[2-9]$/
     },
     owner_address: {
       include: /(taxpayer|owner|ownr|mail).*?(addr|address|street|line)|(addr|address).*?(taxpayer|owner|mail)/i,
-      exclude: /(city|state|zip)/i
+      // the title / deed holder's mailing line is not the taxpayer's address
+      exclude: /(city|state|zip|title|legal|deed|grantee)/i
     },
     situs_address: {
       include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr|physical_?addr)/i,
@@ -1847,6 +1867,51 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     county: {
       include: /(county|cnty|co_?name|county_?nm|county_?name)/i,
       exclude: /(fips|code|_cd$|id$|num)/i
+    },
+    legal_owner: {
+      include: /(title_?owner|deed_?holder|legal_?owner|grantee|buyer|record_?owner|owner_?of_?record)/i,
+      exclude: /(addr|address|city|state|zip|mail|id$|date|_dt$|type|code|count|flag)/i,
+      prefer: /name/i
+    },
+    zoning: {
+      include: /(^zon(e|ing)|_zon(e|ing)|zone_?(code|cd|class|dist|district)|zoning_?(code|cd|class|dist|district)|zn_?code|zonecode|zoning$|zone$)/i,
+      // tax code areas, UTM/time/climate zones, utility zones, ordinance and area fields are
+      // not zoning districts
+      exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date|tax|tca|levy|utm|sewer|water|climate|snow|wind|time|acre|area|ord|market|nbhd|neighbo|value|appr|assess|police|ems|transit|parking|noise|hazard|liquef|wetland|shoreline|critical)/i,
+      prefer: /(^zoning$|^zone$|zone_?code|zone_?cd|zoning_?code|kca_?zoning|^zon_cur_cd$)/i
+    },
+    zoning_description: {
+      include: /(zon(e|ing).*(desc|description|name|label|text)|(desc|description|name).*zon(e|ing))/i,
+      exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date|lu_?des|land_?use|designation)/i
+    },
+    sale_date: {
+      include: /(sale.*(date|_dt$|dt$)|(date|dt).*sale|deed_?date|document_?date|doc_?date|transfer_?date|trnsf_?date|xfer_?date|recording_?date|excise_?date|sold_?date|date_?sold|year_?sold|sale_?yr|sale_?year)/i,
+      exclude: /(appraisal|assess|inspect|insp|create|edit|modif|update|retire|effective|expir|permit|build|record_?type|link|url)/i,
+      prefer: /(sale_?date|saledate|document_?date|trnsf_?date|transfer_?date)/i
+    },
+    sale_price: {
+      include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price)/i,
+      // validity / qualification flags and excise-tax fields sit beside prices in WA sales tables
+      exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise|affidavit|reet|valid|qual|tax_?amt)/i,
+      prefer: /(sale_?price|saleprice|sale_?amount|saleamount|gross_?sale)/i
+    },
+    sale_grantor: {
+      include: /(grantor|seller|sellr)/i,
+      exclude: /(addr|address|city|state|zip|id$|date|type|code)/i
+    },
+    sale_deed_type: {
+      include: /(deed_?type|sale_?instrument|^instrument|transfer_?type|trnsf_?type|document_?type|doc_?type|sale_?type)/i,
+      exclude: /(date|_dt$|nbr|num|id$|code$)/i
+    },
+    // The business operating on the parcel (occupant), which is not the owner of record.
+    business_name: {
+      include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name)/i,
+      exclude: /(addr|address|owner|taxpayer|id$|code|type|date|_dt$)/i
+    },
+    exemption: {
+      include: /(exempt)/i,
+      exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev|yr|year|flag|status|stat$)/i,
+      prefer: /(type|desc|description|code)/i
     }
   };
   function score(field, h) {
@@ -1865,7 +1930,49 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return best;
   }
   var NUMERIC_TYPES = /* @__PURE__ */ new Set(["esriFieldTypeDouble", "esriFieldTypeSingle", "esriFieldTypeInteger", "esriFieldTypeSmallInteger", "esriFieldTypeBigInteger"]);
-  var VALUE_ATTRS = /* @__PURE__ */ new Set(["taxable_value", "land_value", "improvement_value", "total_value", "land_acres", "land_sqft"]);
+  var VALUE_ATTRS = /* @__PURE__ */ new Set(["taxable_value", "land_value", "improvement_value", "total_value", "land_acres", "land_sqft", "sale_price"]);
+  function toISODate(v, { epochMs = false } = {}) {
+    if (v === null || v === void 0 || v === "") return null;
+    const maxYear = (/* @__PURE__ */ new Date()).getUTCFullYear() + 1;
+    const yearOk = (y) => y >= 1800 && y <= maxYear;
+    const ymd = (y, mo, d) => {
+      if (!yearOk(y) || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+      if (y === 1900 && mo === 1 && d === 1) return null;
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    };
+    const fromDate = (dt) => {
+      if (Number.isNaN(dt.getTime())) return null;
+      return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+    };
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) return null;
+      if (epochMs) return fromDate(new Date(v));
+      if (Math.abs(v) >= 1e11) return fromDate(new Date(v));
+      if (v >= 3e8) return fromDate(new Date(v * 1e3));
+      if (v >= 18000101 && v <= 21001231) return ymd(Math.floor(v / 1e4), Math.floor(v / 100) % 100, v % 100);
+      if (yearOk(v) && Number.isInteger(v)) return `${v}`;
+      return null;
+    }
+    const s = String(v).trim();
+    if (!s) return null;
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+    m = s.match(/^(\d{4})-(\d{2})$/);
+    if (m) return yearOk(Number(m[1])) && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${m[1]}-${m[2]}` : null;
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return ymd(Number(m[3]), Number(m[1]), Number(m[2]));
+    m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+    m = s.match(/^([A-Za-z]{3,9})[-\s](\d{4})$/);
+    if (m) {
+      const mi = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1].slice(0, 3).toLowerCase());
+      if (mi >= 0 && yearOk(Number(m[2]))) return `${m[2]}-${String(mi + 1).padStart(2, "0")}`;
+      return null;
+    }
+    if (/^\d{4}$/.test(s)) return yearOk(Number(s)) ? s : null;
+    if (/^\d+(\.\d+)?$/.test(s)) return toISODate(Number(s), { epochMs });
+    return fromDate(new Date(s));
+  }
   function resolveFieldMap(layerInfo, candidates = {}) {
     const fields = layerInfo.fields || [];
     const byLower = new Map(fields.map((f) => [f.name.toLowerCase(), f]));
@@ -1895,6 +2002,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           if (used.has(f.name)) continue;
           if (f.type === "esriFieldTypeOID" || f.type === "esriFieldTypeGeometry" || /^shape([._]|$)/i.test(f.name)) continue;
           let s = score(f, HEURISTICS[attr]);
+          if (s && attr === "exemption" && (f.type !== "esriFieldTypeString" || f.length && f.length <= 2)) continue;
           if (s && VALUE_ATTRS.has(attr)) {
             if (NUMERIC_TYPES.has(f.type)) s += 10;
             else if (f.type === "esriFieldTypeString") {
@@ -1964,12 +2072,262 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     computed: STATEWIDE_COMPUTED,
     notes: "Supplies market values, DOR land use and the assessor link where the county layer lacks them."
   };
+  var WAZA_ZONING = {
+    id: "waza-zones",
+    confidence: "confirmed",
+    name: "Washington Zoning Atlas, zoning districts (all jurisdictions)",
+    publisher: "Washington State Department of Commerce / National Zoning Atlas",
+    url: "https://services6.arcgis.com/tboeqGwETr5ppr5Q/arcgis/rest/services/WAZA_Prototype_Layers/FeatureServer/0",
+    fields: { zoning: ["ZoneID"], zoning_description: ["ZoneName"] },
+    jurisdictionField: "Jurisdiction",
+    notes: "Normalized statewide atlas of city and county zoning (2024\u20132025 vintage) used where the jurisdiction publishes no zoning service; codes can lag recent municipal code amendments. Commerce publishes the atlas under the State open-data terms (RCW 42.56.070(8) restricts commercial use of lists of individuals, which zoning polygons do not contain)."
+  };
+  var AUBURN_ZONING = {
+    id: "auburn-zoning",
+    confidence: "confirmed",
+    name: "Zoning (City of Auburn Public map service)",
+    publisher: "City of Auburn GIS",
+    url: "https://gis.auburnwa.gov/mapping/rest/services/Public/Public/MapServer/6",
+    fields: { zoning: ["ZONINGNAME"] },
+    jurisdiction: "City of Auburn",
+    extent: [-122.34, 47.23, -122.15, 47.37],
+    notes: 'ZONINGNAME combines code and label, e.g. "C1 (Light Commercial)".'
+  };
+  var PIERCE_ZONING = [
+    {
+      id: "tacoma-zoning-2025",
+      confidence: "likely",
+      name: "Zoning Districts 2025 (City of Tacoma Open Data)",
+      publisher: "City of Tacoma Planning & Development Services",
+      item: { id: "e71809b0bb4e4365a478a46117583daf", layer: 0 },
+      fields: { zoning: ["Zoning", "ZONING", "ZONE", "Zone_Code", "ZONECODE"] },
+      jurisdiction: "City of Tacoma",
+      extent: [-122.62, 47.13, -122.3, 47.34],
+      notes: 'Hub item "Zoning Districts 2025 (Tacoma)"; the hosted layer URL is resolved from the item at run time.'
+    },
+    {
+      id: "puyallup-zoning",
+      confidence: "likely",
+      name: "Zoning (City of Puyallup ZoningReview map service)",
+      publisher: "City of Puyallup GIS",
+      url: "https://gis.puyallupwa.gov/arcgis/rest/services/PuyViewPlanning/ZoningReviewMService/MapServer/1",
+      fields: {},
+      jurisdiction: "City of Puyallup",
+      extent: [-122.38, 47.13, -122.22, 47.23],
+      notes: "Field names resolved from the live schema."
+    },
+    {
+      id: "lakewood-zoning",
+      confidence: "likely",
+      name: "Lakewood Zoning (City of Lakewood feature service)",
+      publisher: "City of Lakewood GIS",
+      url: "https://egis.lakewood.org/server/rest/services/PL/Lakewood_Zoning_Feature_Service/FeatureServer/0",
+      fields: {},
+      jurisdiction: "City of Lakewood",
+      extent: [-122.63, 47.1, -122.45, 47.22],
+      notes: "Lakewood Municipal Code Title 17 zoning; field names resolved from the live schema."
+    },
+    {
+      id: "fife-zoning",
+      confidence: "likely",
+      name: "City of Fife Zoning View (Fife Open Data)",
+      publisher: "City of Fife GIS",
+      item: { id: "cea255ec7ebf4cfd88434836fa7874f8", layer: 0 },
+      fields: {},
+      jurisdiction: "City of Fife",
+      extent: [-122.42, 47.2, -122.28, 47.28],
+      notes: "Official zoning map dated June 2025; layer URL resolved from the hub item."
+    },
+    AUBURN_ZONING,
+    {
+      id: "pierce-county-zoning",
+      confidence: "likely",
+      name: "Zoning and Land Use Designations, unincorporated Pierce County",
+      publisher: "Pierce County Planning & Public Works",
+      item: { id: "068b1c905eb1465ab61812e9a8d1032e", layer: 0 },
+      fields: { zoning: ["ZON_CUR_CD", "zon_cur_cd"], zoning_description: ["ZON_CUR_NA", "zon_cur_na"] },
+      jurisdiction: "Pierce County (unincorporated)",
+      notes: "Adopted zoning for unincorporated Pierce County only (ZON_CUR_CD code, ZON_CUR_NA name); city zoning is not included."
+    },
+    WAZA_ZONING
+  ];
+  var KING_ZONING = [
+    {
+      id: "seattle-zoning-detail",
+      confidence: "confirmed",
+      name: "Current Land Use Zoning Detail (City of Seattle)",
+      publisher: "City of Seattle, Office of Planning & Community Development",
+      url: "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Current_Land_Use_Zoning_Detail_2/FeatureServer/0",
+      fields: { zoning: ["ZONING", "ZONELUT"], zoning_description: ["ZONING_DESC", "ZONELUT_DESC"] },
+      jurisdiction: "City of Seattle",
+      extent: [-122.46, 47.47, -122.2, 47.75],
+      notes: "Seattle zoning detail (PDDL licence)."
+    },
+    {
+      id: "bellevue-zoning",
+      confidence: "likely",
+      name: "Zoning (City of Bellevue)",
+      publisher: "City of Bellevue GIS",
+      url: "https://services1.arcgis.com/EYzEZbDhXZjURPbP/arcgis/rest/services/Zoning/FeatureServer/7",
+      fields: { zoning: ["Zoning"], zoning_description: ["ZoningDescription"] },
+      jurisdiction: "City of Bellevue",
+      extent: [-122.25, 47.52, -122.06, 47.69]
+    },
+    {
+      id: "mercer-island-zoning",
+      confidence: "likely",
+      name: "Zoning (City of Mercer Island planning layers)",
+      publisher: "City of Mercer Island",
+      url: "https://services3.arcgis.com/bJ3kuL5CJAvqKrUn/arcgis/rest/services/Mercer_Island_Planning_Layers/FeatureServer/2",
+      fields: { zoning: ["ZONING"], zoning_description: ["ZoningDescription"] },
+      jurisdiction: "City of Mercer Island",
+      extent: [-122.27, 47.51, -122.19, 47.62]
+    },
+    {
+      id: "kent-zoning",
+      confidence: "likely",
+      name: "Zoning Districts (City of Kent)",
+      publisher: "City of Kent GIS",
+      url: "https://geoservices.kentwa.gov/public/rest/services/PUBLIC_PLANNING_ZoningDistricts/MapServer/0",
+      fields: { zoning: ["Short_Name"], zoning_description: ["Long_Name"] },
+      jurisdiction: "City of Kent",
+      extent: [-122.35, 47.32, -122.1, 47.46]
+    },
+    {
+      id: "federal-way-zoning",
+      confidence: "likely",
+      name: "Zoning (City of Federal Way)",
+      publisher: "City of Federal Way GIS",
+      url: "https://geoportal.cityoffederalway.com/res/rest/services/FW_Land/zoning/MapServer/0",
+      fields: { zoning: ["ZONING"] },
+      jurisdiction: "City of Federal Way",
+      extent: [-122.42, 47.24, -122.23, 47.37]
+    },
+    AUBURN_ZONING,
+    {
+      id: "king-county-zoning",
+      confidence: "likely",
+      name: "King County zoning, unincorporated (KingCo_Zoning)",
+      publisher: "King County GIS Center / Permitting",
+      url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Planning/KingCo_Zoning/MapServer/1",
+      fields: { zoning: ["CURRZONE"], zoning_description: false },
+      jurisdiction: "King County (unincorporated)",
+      notes: "CURRZONE is the current zoning of unincorporated King County; city zoning comes from city layers or the statewide atlas."
+    },
+    WAZA_ZONING
+  ];
+  var SNOHOMISH_ZONING = [
+    {
+      id: "everett-zoning",
+      confidence: "confirmed",
+      name: "Zoning Districts (City of Everett Planning)",
+      publisher: "City of Everett GIS",
+      url: "https://gismaps.everettwa.gov/manarcgis/rest/services/Planning/Planning/MapServer/49",
+      fields: { zoning: ["Zone"], zoning_description: ["Zone_Desc"] },
+      jurisdiction: "City of Everett",
+      extent: [-122.32, 47.86, -122.11, 48.06]
+    },
+    {
+      id: "snohomish-county-zoning",
+      confidence: "likely",
+      name: "Zoning polygons, unincorporated Snohomish County (PLANNING zoning_poly)",
+      publisher: "Snohomish County Planning & Development Services",
+      item: { id: "7a90035a35f6424785f6e74ed3e49941", layer: 0 },
+      fields: {},
+      jurisdiction: "Snohomish County (unincorporated)",
+      notes: "Field names resolved from the live schema."
+    },
+    WAZA_ZONING
+  ];
+  var SPOKANE_ZONING = [
+    {
+      id: "spokane-city-zoning",
+      confidence: "confirmed",
+      name: "Zoning (City of Spokane), SCOUT layers menu",
+      publisher: "City of Spokane / Spokane County GIS (SCOUT)",
+      url: "https://gismo.spokanecounty.org/arcgis/rest/services/SCOUT/LayersMenu/MapServer/33",
+      fields: { zoning: ["ZoneCode"], zoning_description: ["ZoneLabel"] },
+      jurisdiction: "City of Spokane",
+      extent: [-117.56, 47.57, -117.27, 47.77]
+    },
+    {
+      id: "spokane-valley-zoning",
+      confidence: "confirmed",
+      name: "Zoning (City of Spokane Valley)",
+      publisher: "City of Spokane Valley GIS",
+      url: "https://gis.spokanevalley.org/arcgis/rest/services/Layers/ValleyZoning/FeatureServer/1",
+      fields: { zoning: ["Zoning"] },
+      jurisdiction: "City of Spokane Valley",
+      extent: [-117.33, 47.59, -117.1, 47.73]
+    },
+    {
+      id: "spokane-county-zoning",
+      confidence: "confirmed",
+      name: "Zoning District, unincorporated Spokane County (OpenData/Planning)",
+      publisher: "Spokane County Building & Planning",
+      url: "https://gismo.spokanecounty.org/arcgis/rest/services/OpenData/Planning/MapServer/0",
+      fields: { zoning: ["ZONECLASS"] },
+      jurisdiction: "Spokane County (unincorporated)"
+    },
+    WAZA_ZONING
+  ];
+  var THURSTON_ZONING = [
+    {
+      id: "lacey-area-zoning",
+      confidence: "confirmed",
+      name: "Lacey Area Zoning (Thurston County, UGAs, Lacey, Rainier, Bucoda, Yelm)",
+      publisher: "City of Lacey GIS / Thurston County",
+      url: "https://laceyportal.ci.lacey.wa.us/server/rest/services/base_data/Lacey_Area_Zoning_0822/MapServer/3",
+      fields: {},
+      notes: "August 2022 compilation; Olympia and Tumwater are not included (the statewide atlas covers them)."
+    },
+    WAZA_ZONING
+  ];
+  var CLARK_ZONING = [
+    {
+      id: "clark-zoning",
+      confidence: "confirmed",
+      name: "Zoning, all Clark County jurisdictions (ClarkView_Public)",
+      publisher: "Clark County GIS",
+      url: "https://gis.clark.wa.gov/arcgisfed/rest/services/ClarkView_Public/Zoning/MapServer/0",
+      fields: { zoning: ["ZONING"], zoning_description: ["GRPDESC"] },
+      notes: "Combines the zoning layers of every city and unincorporated Clark County."
+    },
+    WAZA_ZONING
+  ];
+  var KITSAP_ZONING = [
+    {
+      id: "bremerton-zoning",
+      confidence: "likely",
+      name: "Bremerton Zoning (City of Bremerton)",
+      publisher: "City of Bremerton GIS",
+      url: "https://arcgis.bremertonwa.gov/arcgis/rest/services/Bremerton_Zoning/MapServer/0",
+      fields: { zoning: ["MAX_ZONE"] },
+      jurisdiction: "City of Bremerton",
+      extent: [-122.75, 47.5, -122.55, 47.65]
+    },
+    WAZA_ZONING
+  ];
+  var YAKIMA_ZONING = [
+    {
+      id: "yakima-county-zoning",
+      confidence: "confirmed",
+      name: "CountyZoning, unincorporated Yakima County",
+      publisher: "Yakima County Planning",
+      url: "https://maps.yakimacounty.us/server/rest/services/Planning/CountyZoning/MapServer/0",
+      fields: {},
+      jurisdiction: "Yakima County (unincorporated)",
+      notes: "Field names resolved from the live schema."
+    },
+    WAZA_ZONING
+  ];
   var STATEWIDE = {
     key: "wa",
     name: "Washington State Current Parcels",
     counties: ["*"],
     useCodeScheme: "dor",
     assessorLink: null,
+    zoning: [WAZA_ZONING],
     sources: [
       {
         id: "wa-current-parcels",
@@ -2007,8 +2365,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   };
   var PIERCE_COUNTY_FIELDS = {
     parcel_id: ["TaxParcelNumber"],
-    owner: ["Taxpayer_Name", "Business_Name"],
+    owner: ["Taxpayer_Name", "TaxpayerName"],
     owner_address: ["Delivery_Address"],
+    business_name: ["Business_Name"],
     situs_address: ["Site_Address"],
     taxable_value: ["Taxable_Value"],
     land_value: ["Land_Value"],
@@ -2016,9 +2375,24 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     total_value: ["Total_Market_Value"],
     land_acres: ["Land_Acres"],
     use_code: ["Use_Code"],
-    use_description: ["Landuse_Description"]
+    use_description: ["Landuse_Description"],
+    exemption: ["Exemption_Code"]
   };
   var PIERCE_COUNTY_COMPUTED = { total_value: { sum: ["Land_Value", "Improvement_Value"], label: "Land + improvement value" } };
+  var PIERCE_ASSESSOR_EXTRACT = {
+    id: "pierce-assessor-extract",
+    geometry: false,
+    enrich: true,
+    confidence: "confirmed",
+    name: "Assessor-Treasurer weekly data extract: deeds (legal owner, last sale), business name, exemption, values",
+    publisher: "Pierce County Assessor-Treasurer Data Downloads, compiled weekly for this map",
+    url: "https://www.piercecountywa.gov/736/Data-Downloads",
+    static: { manifest: "data/assessor/pierce/manifest.json", shard: "data/assessor/pierce/shards/{prefix}.json", prefixLength: 4 },
+    // the extract's exemption is the descriptive type; the county layer only has a code
+    override: ["exemption"],
+    notesFor: { legal_owner: "grantee on the most recent recorded deed in the Assessor-Treasurer sale file" },
+    notes: "Last sale date, price, deed type, grantor and grantee for every parcel (full recorded history), business name, exemption type and current-year values. No public Pierce County bulk table carries taxpayer names."
+  };
   var TACOMA_FIELDS = {
     parcel_id: ["TaxParcelNumber"],
     owner: ["TAXPAYERNAME", "TaxpayerName", "Taxpayer_Name"],
@@ -2028,7 +2402,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     improvement_value: ["ImprovementValueCurrentYear", "ImprovementValue", "Improvement_Value", "ImprovementValuePriorYear"],
     total_value: ["TotalMarketValueCurrentYear", "TotalMarketValue", "TotalMarketValuePriorYear"],
     land_acres: ["LandGrossAcres", "Land_Acres"],
-    use_code: ["Use_Code", "CurrentUseCodeCurrentYear"],
+    // CurrentUseCodeCurrentYear is the RCW 84.34 open-space / farm program code, not land use
+    use_code: ["Use_Code"],
     use_description: ["Landuse_Description", "UseDescription"]
   };
   var KING_FIELDS = {
@@ -2044,7 +2419,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     land_acres: ["KCA_ACRES"],
     land_sqft: ["LOTSQFT"],
     use_code: ["PREUSE_CODE", "PRESENTUSE"],
-    use_description: ["PREUSE_DESC"]
+    use_description: ["PREUSE_DESC"],
+    zoning: ["KCA_ZONING"]
   };
   var KING_COMPUTED = {
     taxable_value: { sum: ["TAX_LNDVAL", "TAX_IMPR"], label: "Taxable land + improvement value" },
@@ -2095,7 +2471,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     land_acres: ["AssrAc", "GISAc"],
     land_sqft: ["AssrSqFt", "GISSqft"],
     use_code: ["PropertyUseClass", "Pt1"],
-    use_description: ["Pt1Desc"]
+    use_description: ["Pt1Desc"],
+    sale_date: ["SaleDate"],
+    sale_price: ["SaleAmount"],
+    zoning: ["Zone1", "ZONING", "Zoning"],
+    zoning_description: ["ZoneDesc"]
   };
   var THURSTON_FIELDS = {
     parcel_id: ["PARCEL_NO", "ParcelNumber"],
@@ -2110,7 +2490,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     land_acres: ["TOTAL_ACRES", "TOTAL_ACRE"],
     use_code: false,
     // county codes are cryptic; the DOR code from the State join is used
-    use_description: false
+    use_description: false,
+    sale_date: ["SALE_DATE", "SaleDate"],
+    sale_price: ["SALE_PRICE", "SalePrice"],
+    sale_grantor: ["SELLER_NAM", "SELLER_NAME", "SELLER"]
   };
   var SKAGIT_FIELDS = {
     parcel_id: ["PARCELID"],
@@ -2127,7 +2510,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     land_acres: ["Acres"],
     land_sqft: false,
     use_code: ["LandUse"],
-    use_description: false
+    use_description: false,
+    sale_date: ["SaleDate"],
+    sale_price: ["SalePrice"],
+    sale_deed_type: ["SaleDeedType"]
   };
   var SKAGIT_COMPUTED = { land_value: { sum: ["ImprLandValue", "UnimprLandValue", "TimberLandValue"], label: "Improved + unimproved + timber land value" } };
   var SKAGIT_SITUS = ["SitusStNo", "SitusStName"];
@@ -2170,6 +2556,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Pierce"],
       useCodeScheme: "dor-prefix",
       assessorLink: "https://atip.piercecountywa.gov/app/v2/propertyDetail/{parcel}/summary",
+      zoning: PIERCE_ZONING,
       sources: [
         {
           id: "tacoma-ats-parcels",
@@ -2192,9 +2579,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           url: "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Tax_Parcels/FeatureServer/0",
           fields: PIERCE_COUNTY_FIELDS,
           computed: PIERCE_COUNTY_COMPUTED,
-          ownerNote: "Business_Name lists the taxpayer name for business-owned parcels only",
-          ownerNoteField: "business",
-          notes: "Authoritative county layer (CORS enabled) with taxable value, land acres, use code and land-use description; individual taxpayer names are not published here."
+          notes: "Authoritative county layer (CORS enabled) with taxable value, land acres, use code, land-use description, exemption code and the business name on the parcel; taxpayer names are withheld from county open data."
         },
         {
           id: "soundtransit-pierce-parcels",
@@ -2205,10 +2590,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           url: "https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/1",
           fields: PIERCE_COUNTY_FIELDS,
           computed: PIERCE_COUNTY_COMPUTED,
-          ownerNote: "Business_Name lists the taxpayer name for business-owned parcels only",
-          ownerNoteField: "business",
           notes: "Regional mirror of the county layer; values may lag the county."
-        }
+        },
+        PIERCE_ASSESSOR_EXTRACT
       ]
     },
     {
@@ -2217,6 +2601,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["King"],
       useCodeScheme: "county",
       assessorLink: "https://blue.kingcounty.com/Assessor/eRealProperty/Dashboard.aspx?ParcelNbr={parcel}",
+      zoning: KING_ZONING,
       sources: [
         {
           id: "king-parcel-address-area",
@@ -2251,6 +2636,30 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           fields: { ...KING_FIELDS, owner: false, owner_address: false },
           computed: { total_value: KING_COMPUTED.total_value },
           notes: "Fallback property-themed parcel layer: appraised values, acres and present use; no taxable values or owner."
+        },
+        {
+          id: "king-parcel-sales-3yr",
+          geometry: false,
+          enrich: true,
+          confidence: "confirmed",
+          name: "Parcel sales history, last 3 years (King County Assessor, ArcGIS Online)",
+          publisher: "King County GIS Center / King County Assessor",
+          url: "https://services.arcgis.com/Ej0PsM5Aw677QF1W/arcgis/rest/services/PARCEL_SALES3YR_AREA_287/FeatureServer/0",
+          fields: { parcel_id: ["PIN"], owner: false, situs_address: false, sale_date: ["SaleDate"], sale_price: ["SalePrice"], sale_grantor: ["Sellername", "SellerName"], legal_owner: ["buyername", "BuyerName"], use_code: false, use_description: false },
+          notesFor: { legal_owner: "buyer on the most recent recorded sale (King County Assessor sales, last three years)" },
+          notes: "One feature per recorded sale (excise affidavit) in the last three years: sale date, price, seller and buyer names."
+        },
+        {
+          id: "king-propertyinfo-sales",
+          geometry: false,
+          enrich: true,
+          confidence: "confirmed",
+          name: "Property sales in the last 3 years (King County Property/KingCo_PropertyInfo)",
+          publisher: "King County GIS Center / King County Assessor",
+          url: "https://gismaps.kingcounty.gov/arcgis/rest/services/Property/KingCo_PropertyInfo/MapServer/3",
+          fields: { parcel_id: ["PIN"], owner: false, situs_address: false, sale_date: ["SaleDate"], sale_price: ["SalePrice"], sale_grantor: ["Sellername", "SellerName"], legal_owner: ["buyername", "BuyerName"], use_code: false, use_description: false },
+          notesFor: { legal_owner: "buyer on the most recent recorded sale (King County Assessor sales, last three years)" },
+          notes: "County-hosted twin of the sales layer, used when the hosted copy is unavailable."
         }
       ]
     },
@@ -2260,6 +2669,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Snohomish"],
       useCodeScheme: "county",
       assessorLink: "https://www.snoco.org/proptax/search.aspx?parcel_number={parcel}",
+      zoning: SNOHOMISH_ZONING,
       sources: [
         {
           id: "snoco-open-data-parcels",
@@ -2290,6 +2700,17 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           url: "https://rtamaps2.soundtransit.org/arcgis/rest/services/STARS_ContextLayers_Parcels/MapServer/2",
           fields: SNOHOMISH_FIELDS,
           notes: "Regional mirror with the same schema; values may lag the county."
+        },
+        {
+          id: "snoco-recent-sales",
+          geometry: false,
+          enrich: true,
+          confidence: "confirmed",
+          name: "Recent Property Sales (Snohomish County Assessor, ArcGIS Online)",
+          publisher: "Snohomish County Assessor / GIS",
+          url: "https://services6.arcgis.com/z6WYi9VRHfgwgtyW/arcgis/rest/services/Recent_Property_Sales/FeatureServer/0",
+          fields: { parcel_id: ["PARCEL_ID"], owner: false, situs_address: false, sale_date: ["TRNSF_DATE"], sale_price: ["SALE_PRICE"], use_code: false, use_description: false },
+          notes: 'Quarterly snapshot of recent sales; the transfer date is published to month precision (e.g. "Jun-2026").'
         }
       ]
     },
@@ -2299,6 +2720,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Spokane"],
       useCodeScheme: "dor-prefix",
       assessorLink: "https://cp.spokanecounty.org/SCOUT/propertyinformation/Summary.aspx?PID={parcel}",
+      zoning: SPOKANE_ZONING,
       sources: [
         {
           id: "spokane-open-data-parcels",
@@ -2330,8 +2752,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           name: "SCOUT Property Lookup (Spokane County), owner join",
           publisher: "Spokane County GIS (SCOUT)",
           url: "https://gismo.spokanecounty.org/arcgis/rest/services/SCOUT/PropertyLookup/MapServer/0",
-          fields: { parcel_id: ["PID_NUM"], owner: ["owner_name"], situs_address: ["site_address"], situs_city: ["site_city"], land_acres: ["acreage"], use_description: ["prop_use_desc"] },
-          notes: "Owner name, use description and acreage keyed by parcel number."
+          fields: { parcel_id: ["PID_NUM"], owner: ["owner_name"], situs_address: ["site_address"], situs_city: ["site_city"], land_acres: ["acreage"], use_description: ["prop_use_desc"], sale_date: ["document_date"], sale_price: ["gross_sale_price"], sale_deed_type: ["transfer_type"] },
+          notes: "Owner name, use description, acreage and the most recent sale (document date, gross sale price, transfer type) keyed by parcel number."
         },
         {
           id: "spokane-scout-queries",
@@ -2362,6 +2784,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Thurston"],
       useCodeScheme: "dor",
       assessorLink: "https://tcproperty.co.thurston.wa.us/propsql/basic.asp?fe=PR&pn={parcel}",
+      zoning: THURSTON_ZONING,
       sources: [
         {
           id: "thurston-enterprise-parcels",
@@ -2392,6 +2815,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Yakima"],
       useCodeScheme: "dor",
       assessorLink: null,
+      zoning: YAKIMA_ZONING,
       sources: [
         {
           id: "yakima-taxlots",
@@ -2405,6 +2829,20 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           computed: YAKIMA_COMPUTED,
           notes: "Current tax-roll taxlots with organisation or individual owner names, market values, acres, and DOR use code with description."
         },
+        {
+          id: "yakima-sales",
+          geometry: false,
+          enrich: true,
+          joinBy: "ids",
+          joinField: "ASSESSOR_N",
+          confidence: "likely",
+          name: "Sales, recent assessment year (Yakima County Assessor)",
+          publisher: "Yakima County GIS / Assessor",
+          url: "https://maps.yakimacounty.us/server/rest/services/Assessor/Sales/FeatureServer/11",
+          fields: { parcel_id: ["ASSESSOR_N"], owner: false, situs_address: false, sale_date: ["DOCUMENT_D"], sale_price: ["GROSS_SALE"], use_code: false, use_description: false },
+          notesFor: { sale_date: "from the assessor's recent-year sales layer; older sales are not in this layer" },
+          notes: "Recorded sales by assessor number (document date, gross sale price) for the assessor's most recent sales year only, so a parcel without a recent sale shows none; joined by parcel-number list."
+        },
         STATEWIDE_ENRICH
       ]
     },
@@ -2414,6 +2852,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Kitsap"],
       useCodeScheme: "dor",
       assessorLink: "https://psearch.kitsap.gov/pdetails/Details?parcel={parcel}&page=general",
+      zoning: KITSAP_ZONING,
       sources: [
         {
           id: "kitsap-health-parcels",
@@ -2434,6 +2873,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       counties: ["Clark"],
       useCodeScheme: "county",
       assessorLink: "https://gis.clark.wa.gov/gishome/Property/?pid=findSN&account={parcel}",
+      zoning: CLARK_ZONING,
       sources: [
         {
           id: "clark-taxlots-public",
@@ -2463,7 +2903,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           url: "https://gis.whatcomcounty.us/arcgis/rest/services/EnterprisePublishing/WhatcomCo_Property/MapServer/1",
           fields: {
             parcel_id: ["geo_id", "prop_id"],
-            owner: ["tax_payer_name_full", "tax_payer_name", "title_owner_name_full"],
+            owner: ["tax_payer_name_full", "tax_payer_name"],
+            legal_owner: ["title_owner_name_full", "title_owner_name"],
             owner_address: ["tax_payer_add_full"],
             situs_city: ["situs_city"],
             taxable_value: ["taxable_val_total"],
@@ -2543,6 +2984,18 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           situsCompose: COWLITZ_SITUS,
           computed: COWLITZ_COMPUTED,
           notes: "Alternate county host documented with a taxable value field; did not answer when probed."
+        },
+        {
+          id: "cowlitz-sales-by-parcel",
+          geometry: false,
+          enrich: true,
+          joinBy: "ids",
+          confidence: "guess",
+          name: "Sales By Parcel (Cowlitz County Assessor service)",
+          publisher: "Cowlitz County GIS / Assessor",
+          url: "https://gis.cowlitzwa.gov/ccserver/rest/services/Assessor/Sales_By_Parcel/MapServer/0",
+          fields: { owner: false, situs_address: false, use_code: false, use_description: false },
+          notes: "Documented assessor sales layer; parcel-number and sale fields are resolved from the live schema."
         }
       ]
     },
@@ -2699,6 +3152,19 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
             assessor_link: ["smartgov_url"]
           },
           notes: "Assessor-managed parcels with taxpayer, values, acreage and land-use code (observed live)."
+        },
+        {
+          id: "island-qualified-sales",
+          geometry: false,
+          enrich: true,
+          joinBy: "ids",
+          joinField: "ParcelNo",
+          confidence: "confirmed",
+          name: "Qualified Sales (Island County Assessor)",
+          publisher: "Island County GIS / Assessor",
+          url: "https://maps.islandcountywa.gov/arcgis/rest/services/AssessorFiles/QualifiedSales/MapServer/1",
+          fields: { parcel_id: ["ParcelNo", "PID"], owner: false, situs_address: false, sale_date: ["sale_date"], sale_price: ["sale_price"], use_code: false, use_description: false, land_acres: false },
+          notes: "Arm\u2019s-length (ratio-study) sales only; non-qualified transfers are not listed."
         },
         STATEWIDE_ENRICH
       ]
@@ -2920,6 +3386,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   function normalizeParcelId(id) {
     return String(id ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
   }
+  var SALE_GROUP = ["sale_date", "sale_price", "sale_grantor", "sale_deed_type"];
+  var ID_JOIN_CHUNK = 100;
   var layerPrep = /* @__PURE__ */ new Map();
   function withSignal(promise, signal) {
     if (!signal) return promise;
@@ -2939,10 +3407,36 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       );
     });
   }
-  async function prepareSource(source, { signal } = {}) {
-    if (!layerPrep.has(source.url)) {
+  var itemUrlCache = /* @__PURE__ */ new Map();
+  function sourceKey(source) {
+    return source.url || (source.item ? `item:${source.item.portal || ""}${source.item.id}/${source.item.layer ?? 0}` : source.id);
+  }
+  async function resolveSourceUrl(source) {
+    if (source.url) return source.url;
+    if (!source.item?.id) throw new ArcGISError("Source has neither a layer URL nor a portal item id", { code: "config" });
+    const { id, layer = 0, portal = "https://www.arcgis.com" } = source.item;
+    const key = `${portal}|${id}|${layer}`;
+    if (!itemUrlCache.has(key)) {
       const p = (async () => {
-        const info = await getLayerInfo(source.url);
+        const item = await fetchJson(`${portal}/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`, { timeoutMs: 2e4 });
+        if (!item?.url) throw new ArcGISError("Portal item has no service URL", { code: "item", url: `${portal}/home/item.html?id=${id}` });
+        let url = String(item.url).trim().replace(/\/+$/, "");
+        if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) throw new ArcGISError("Portal item URL is not an https service URL", { code: "item", url: `${portal}/home/item.html?id=${id}` });
+        if (!/\/\d+$/.test(url)) url = `${url}/${layer}`;
+        return url;
+      })();
+      itemUrlCache.set(key, p);
+      p.catch(() => itemUrlCache.delete(key));
+    }
+    return itemUrlCache.get(key);
+  }
+  async function prepareSource(source, { signal } = {}) {
+    const key = sourceKey(source);
+    if (!layerPrep.has(key)) {
+      const p = (async () => {
+        const url = await resolveSourceUrl(source);
+        if (!source.url) source.url = url;
+        const info = await getLayerInfo(url);
         const { map, how } = resolveFieldMap(info, source.fields || {});
         const missingComputed = {};
         for (const [attr, spec] of Object.entries(source.computed || {})) {
@@ -2954,14 +3448,17 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           const cv = f.domain?.codedValues;
           if (Array.isArray(cv) && cv.length) domains[f.name.toLowerCase()] = new Map(cv.map((c) => [String(c.code), String(c.name)]));
         }
-        return { info, fieldMap: map, how, missingComputed, domains };
+        const fieldTypes = {};
+        for (const f of info.fields) fieldTypes[f.name.toLowerCase()] = f.type;
+        return { url, info, fieldMap: map, how, missingComputed, domains, fieldTypes };
       })();
-      layerPrep.set(source.url, p);
-      p.catch(() => layerPrep.delete(source.url));
+      layerPrep.set(key, p);
+      p.catch(() => layerPrep.delete(key));
     }
-    return withSignal(layerPrep.get(source.url), signal);
+    return withSignal(layerPrep.get(key), signal);
   }
   var isAbort = (err) => err?.code === "aborted" || err?.name === "AbortError";
+  var errText = (err) => err?.message || String(err);
   var lookupCache = /* @__PURE__ */ new Map();
   async function loadLookup(lookup, partition, signal) {
     const key = `${lookup.url}|${partition ?? ""}`;
@@ -3005,6 +3502,52 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       }
     }));
   }
+  var staticCache = /* @__PURE__ */ new Map();
+  async function defaultStaticLoader(path, opts = {}) {
+    let base = "";
+    if (typeof document !== "undefined" && document.baseURI) base = document.baseURI;
+    else if (typeof location !== "undefined" && location.href) base = location.href;
+    let url = path;
+    if (/^https?:\/\//i.test(path)) url = path;
+    else if (base && /^https?:/i.test(base)) url = new URL(path, base).href;
+    else if (base && /^file:/i.test(base) && globalThis.__STATIC_DATA_BASE) url = new URL(path, globalThis.__STATIC_DATA_BASE).href;
+    try {
+      return await fetchStaticJson(url, opts);
+    } catch (err) {
+      const published = new URL(path, SITE_BASE).href;
+      if (err?.code !== "aborted" && !/^https?:\/\//i.test(path) && url !== published && !url.startsWith(SITE_BASE)) return fetchStaticJson(published, opts);
+      throw err;
+    }
+  }
+  async function fetchStaticJson(url, { signal } = {}) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new ArcGISError("Request timed out", { url, code: "timeout" })), 3e4);
+    const onAbort = () => ctrl.abort(signal.reason);
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    let res;
+    try {
+      try {
+        res = await fetch(url, { signal: ctrl.signal, credentials: "omit" });
+      } catch (err) {
+        if (ctrl.signal.reason instanceof ArcGISError) throw ctrl.signal.reason;
+        if (signal?.aborted) throw new ArcGISError("Cancelled", { url, code: "aborted", cause: err });
+        throw new ArcGISError(`Network error: ${err.message}`, { url, code: "network", cause: err });
+      }
+      if (!res.ok) throw new ArcGISError(`HTTP ${res.status}`, { url, code: res.status });
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onAbort);
+    }
+  }
+  function loadStatic(loader, path, signal) {
+    if (!staticCache.has(path)) {
+      const p = loader(path);
+      staticCache.set(path, p);
+      p.catch(() => staticCache.delete(path));
+    }
+    return withSignal(staticCache.get(path), signal);
+  }
   function getField(props, name) {
     if (!name) return void 0;
     if (name in props) return props[name];
@@ -3030,6 +3573,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (!dom) return null;
     return dom.get(String(value)) ?? null;
   }
+  var has = (v) => v !== null && v !== void 0 && v !== "";
   function extractAttrs(props, prep, source) {
     const m = prep.fieldMap;
     const out = {
@@ -3048,7 +3592,17 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       use_description: cleanText(getField(props, m.use_description)),
       assessor_link: cleanText(getField(props, m.assessor_link)),
       county: cleanText(getField(props, m.county)),
-      _sourceFields: {}
+      legal_owner: cleanText(getField(props, m.legal_owner)),
+      business_name: cleanText(getField(props, m.business_name)),
+      exemption: cleanText(getField(props, m.exemption)),
+      zoning: cleanText(getField(props, m.zoning)),
+      zoning_description: cleanText(getField(props, m.zoning_description)),
+      sale_date: toISODate(getField(props, m.sale_date), { epochMs: m.sale_date ? prep.fieldTypes?.[m.sale_date.toLowerCase()] === "esriFieldTypeDate" : false }),
+      sale_price: toNumber(getField(props, m.sale_price)),
+      sale_grantor: cleanText(getField(props, m.sale_grantor)),
+      sale_deed_type: cleanText(getField(props, m.sale_deed_type)),
+      _sourceFields: {},
+      _notes: {}
     };
     const countyName = decodeDomain(prep, m.county, getField(props, m.county));
     if (countyName) out.county = countyName;
@@ -3057,6 +3611,20 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (useName) {
         out.use_description = useName;
         out._sourceFields.use_description = `${m.use_code} (domain)`;
+      }
+    }
+    if (out.zoning && !out.zoning_description) {
+      const zName = decodeDomain(prep, m.zoning, getField(props, m.zoning));
+      if (zName && zName !== out.zoning) {
+        out.zoning_description = zName;
+        out._sourceFields.zoning_description = `${m.zoning} (domain)`;
+      }
+    }
+    if (Array.isArray(source.idCompose)) {
+      const parts = source.idCompose.map((f) => cleanText(getField(props, f)));
+      if (parts.every(Boolean)) {
+        out.parcel_id = parts.join("");
+        out._sourceFields.parcel_id = source.idCompose.join(" + ");
       }
     }
     if (Array.isArray(source.situsCompose)) {
@@ -3078,7 +3646,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (out.owner) out._sourceFields.owner = [c.org, c.last, c.first, c.middle].filter(Boolean).join(" / ");
     }
     for (const [attr, spec] of Object.entries(source.computed || {})) {
-      const empty = out[attr] === null || out[attr] === void 0 || out[attr] === "";
+      const empty = !has(out[attr]);
       if (empty || prep.how?.[attr] === "heuristic") {
         if (spec.sum) {
           const v = sumFields(props, spec.sum);
@@ -3103,21 +3671,122 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const cond = source.ownerNoteField ? new RegExp(source.ownerNoteField, "i") : null;
       if (!cond || m.owner && cond.test(m.owner)) out._ownerNote = source.ownerNote;
     }
+    if (source.notesFor) {
+      for (const [attr, note] of Object.entries(source.notesFor)) if (has(out[attr])) out._notes[attr] = note;
+    }
+    if (source.override) out._override = source.override;
     return out;
   }
-  function mergeAttrs(primary, extras) {
-    const out = { ...primary, _sourceFields: { ...primary._sourceFields } };
-    for (const extra of extras) {
-      for (const [k, v] of Object.entries(extra)) {
-        if (k.startsWith("_")) continue;
-        const cur = out[k];
-        const empty = cur === null || cur === void 0 || cur === "";
-        const has = v !== null && v !== void 0 && v !== "";
-        if (empty && has) {
-          out[k] = v;
-          out._sourceFields[k] = `${extra._sourceFields[k]} (${extra._sourceName})`;
-          if (k === "owner" && extra._ownerNote) out._ownerNote = extra._ownerNote;
+  function staticAttrs(rec, source) {
+    const out = { _sourceFields: {}, _notes: { ...rec._notes || {} } };
+    for (const [k, v] of Object.entries(rec)) {
+      if (k.startsWith("_")) continue;
+      if (k === "sale_date") out[k] = toISODate(v);
+      else if (/_(value|price|acres|sqft)$/.test(k)) out[k] = toNumber(v);
+      else out[k] = cleanText(v);
+      if (has(out[k])) out._sourceFields[k] = rec._fields?.[k] || source.static.fieldLabels?.[k] || k;
+    }
+    if (source.notesFor) {
+      for (const [attr, note] of Object.entries(source.notesFor)) if (has(out[attr]) && !out._notes[attr]) out._notes[attr] = note;
+    }
+    if (source.override) out._override = source.override;
+    if (source.ownerNote && out.owner) out._ownerNote = source.ownerNote;
+    return out;
+  }
+  var saleRank = (a) => `${a.sale_date || ""}|${String(a.sale_price ?? 0).padStart(15, "0")}`;
+  var VALID_SALE = ["valid_sale_date", "valid_sale_price"];
+  var SALE_META = ["sale_valid", "sale_exclude_reason", "sale_etn", "sale_parcel_count"];
+  var saleKeysOf = (row) => row.sale_date && has(row.legal_owner) ? [...SALE_GROUP, "legal_owner", ...SALE_META] : [...SALE_GROUP, ...SALE_META];
+  var pricedOf = (row) => row.sale_date && has(row.sale_price) && row.sale_price > 0 ? { date: row.sale_date, price: row.sale_price } : null;
+  function trackPriced(cur, row) {
+    const cand = pricedOf(row);
+    if (cand && (!cur._bestPriced || cand.date > cur._bestPriced.date)) cur._bestPriced = cand;
+    if (has(row.valid_sale_date)) cur._validExplicit = true;
+    if (cur._validExplicit) return;
+    if (cur._bestPriced && cur._bestPriced.date !== cur.sale_date) {
+      cur.valid_sale_date = cur._bestPriced.date;
+      cur.valid_sale_price = cur._bestPriced.price;
+    } else {
+      delete cur.valid_sale_date;
+      delete cur.valid_sale_price;
+    }
+  }
+  function putEnrich(byId, k, attrs) {
+    const cur = byId.get(k);
+    if (!cur) {
+      trackPriced(attrs, attrs);
+      byId.set(k, attrs);
+      return;
+    }
+    const newer = attrs.sale_date && (!cur.sale_date || saleRank(attrs) > saleRank(cur));
+    const saleKeys = /* @__PURE__ */ new Set([...saleKeysOf(attrs), ...saleKeysOf(cur), ...VALID_SALE]);
+    for (const [key, v] of Object.entries(attrs)) {
+      if (key.startsWith("_")) continue;
+      if (saleKeys.has(key)) {
+        if (newer) {
+          cur[key] = v;
+          if (attrs._sourceFields[key]) cur._sourceFields[key] = attrs._sourceFields[key];
+          if (attrs._notes?.[key]) cur._notes[key] = attrs._notes[key];
         }
+        continue;
+      }
+      if (!has(cur[key]) && has(v)) {
+        cur[key] = v;
+        if (attrs._sourceFields[key]) cur._sourceFields[key] = attrs._sourceFields[key];
+      }
+    }
+    if (newer) {
+      for (const key of [...VALID_SALE, ...SALE_META]) if (!has(attrs[key])) delete cur[key];
+    }
+    trackPriced(cur, attrs);
+  }
+  function mergeAttrs(primary, extras) {
+    const out = { ...primary, _sourceFields: { ...primary._sourceFields }, _notes: { ...primary._notes || {} } };
+    let bestPriced = pricedOf(primary);
+    let explicitValid = has(primary.valid_sale_date);
+    for (const extra of extras) {
+      const cand = pricedOf(extra);
+      if (cand && (!bestPriced || cand.date > bestPriced.date)) bestPriced = cand;
+      const override = new Set(extra._override || []);
+      const label = (k) => `${extra._sourceFields?.[k] || k} (${extra._sourceName})`;
+      const saleKeys = /* @__PURE__ */ new Set([...saleKeysOf(extra), ...VALID_SALE]);
+      for (const [k, v] of Object.entries(extra)) {
+        if (k.startsWith("_") || saleKeys.has(k)) continue;
+        const empty = !has(out[k]);
+        if (has(v) && (empty || override.has(k))) {
+          out[k] = v;
+          out._sourceFields[k] = label(k);
+          if (extra._notes?.[k]) out._notes[k] = extra._notes[k];
+          else if (!empty) delete out._notes[k];
+          if (k === "owner") {
+            if (extra._ownerNote) out._ownerNote = extra._ownerNote;
+            else if (!empty) delete out._ownerNote;
+          }
+        }
+      }
+      if (extra.sale_date && (!out.sale_date || saleRank(extra) > saleRank(out) || override.has("sale_date"))) {
+        for (const k of saleKeysOf(extra)) {
+          if (has(extra[k])) {
+            out[k] = extra[k];
+            out._sourceFields[k] = label(k);
+          } else if (SALE_META.includes(k)) delete out[k];
+          else out[k] = null;
+          if (extra._notes?.[k]) out._notes[k] = extra._notes[k];
+        }
+        explicitValid = has(extra.valid_sale_date);
+        for (const k of VALID_SALE) {
+          if (has(extra[k])) out[k] = extra[k];
+          else delete out[k];
+        }
+      }
+    }
+    if (!explicitValid) {
+      if (out.sale_date && !(out.sale_price > 0) && bestPriced && bestPriced.date !== out.sale_date) {
+        out.valid_sale_date = bestPriced.date;
+        out.valid_sale_price = bestPriced.price;
+      } else {
+        delete out.valid_sale_date;
+        delete out.valid_sale_price;
       }
     }
     return out;
@@ -3143,22 +3812,22 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const markKey = normId ? `${provider.key}:${normId}` : key;
     let value = null;
     let valueKind = "none";
-    if (attrs.taxable_value !== null && attrs.taxable_value !== void 0) {
+    if (has(attrs.taxable_value)) {
       value = attrs.taxable_value;
       valueKind = "taxable";
-    } else if (attrs.total_value !== null && attrs.total_value !== void 0) {
+    } else if (has(attrs.total_value)) {
       value = attrs.total_value;
       valueKind = "total";
-    } else if (attrs.land_value !== null || attrs.improvement_value !== null) {
+    } else if (has(attrs.land_value) || has(attrs.improvement_value)) {
       value = (attrs.land_value || 0) + (attrs.improvement_value || 0);
       valueKind = "land+impr";
     }
     let acres = null;
     let acresSource = "none";
-    if (attrs.land_acres !== null && attrs.land_acres !== void 0 && attrs.land_acres > 0) {
+    if (has(attrs.land_acres) && attrs.land_acres > 0) {
       acres = attrs.land_acres;
       acresSource = "assessor";
-    } else if (attrs.land_sqft !== null && attrs.land_sqft !== void 0 && attrs.land_sqft > 0) {
+    } else if (has(attrs.land_sqft) && attrs.land_sqft > 0) {
       acres = attrs.land_sqft / SQFT_PER_ACRE;
       acresSource = "sqft";
     } else if (geometry) {
@@ -3169,6 +3838,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const linkId = attrs._linkId || parcelId;
     if (!link && provider.assessorLink && linkId) link = provider.assessorLink.replace("{parcel}", encodeURIComponent(linkId));
     if (link && !/^https?:\/\//i.test(link)) link = "";
+    const taxpayer = attrs.owner || "";
+    const legalOwner = attrs.legal_owner || "";
+    const owner = taxpayer || legalOwner;
+    const ownerPublished = Boolean(attrs._sourceFields?.owner);
+    const zoningSource = attrs._zoningSource || (attrs.zoning ? "assessor" : "");
     return {
       key,
       markKey,
@@ -3180,8 +3854,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       layerUrl: source.url,
       objectId: feature.id,
       parcelId,
-      owner: attrs.owner || "",
+      owner,
+      ownerSource: taxpayer ? "taxpayer" : legalOwner ? "legal" : "none",
+      ownerPublished,
       ownerNote: attrs._ownerNote || "",
+      taxpayer,
+      legalOwner,
       ownerAddress: attrs.owner_address || "",
       situs: attrs.situs_address || "",
       city: attrs.situs_city || "",
@@ -3197,6 +3875,22 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       useCode: attrs.use_code || "",
       useDescription: attrs.use_description || "",
       useText: useCodeText(provider, attrs),
+      businessName: attrs.business_name || "",
+      exemption: attrs.exemption || "",
+      zoning: attrs.zoning || "",
+      zoningDescription: attrs.zoning_description || "",
+      zoningSource,
+      zoningJurisdiction: attrs._zoningJurisdiction || "",
+      saleDate: attrs.sale_date || null,
+      salePrice: has(attrs.sale_price) ? attrs.sale_price : null,
+      saleGrantor: attrs.sale_grantor || "",
+      saleDeedType: attrs.sale_deed_type || "",
+      saleValid: attrs.sale_valid === void 0 || attrs.sale_valid === null || attrs.sale_valid === "" ? null : String(attrs.sale_valid) === "1" || attrs.sale_valid === true || String(attrs.sale_valid).toLowerCase() === "true",
+      saleExcludeReason: attrs.sale_exclude_reason || "",
+      saleEtn: attrs.sale_etn || "",
+      validSaleDate: attrs.valid_sale_date || null,
+      validSalePrice: has(attrs.valid_sale_price) ? attrs.valid_sale_price : null,
+      notes: attrs._notes || {},
       link,
       geometry,
       bbox,
@@ -3208,14 +3902,47 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       distanceM: null
     };
   }
+  function pointInBBox([x, y], [minX, minY, maxX, maxY]) {
+    return x >= minX && x <= maxX && y >= minY && y <= maxY;
+  }
+  function assignZoning(prepared, zoningSets) {
+    let assigned = 0;
+    for (const p of prepared) {
+      if (p.merged.zoning) continue;
+      const geom = p.f.geometry;
+      if (!geom) continue;
+      if (!p._label) {
+        const polys = polygonsOf(geom);
+        if (!polys.length) continue;
+        p._label = labelPoint(polys);
+      }
+      const pt = p._label;
+      outer: for (const z of zoningSets) {
+        for (const zf of z.features) {
+          if (!pointInBBox(pt, zf.bbox) || !pointInGeometry(pt, zf.geometry)) continue;
+          p.merged.zoning = zf.code;
+          p.merged.zoning_description = zf.description || "";
+          p.merged._zoningSource = z.source.name;
+          p.merged._zoningJurisdiction = zf.jurisdiction || z.source.jurisdiction || "";
+          p.merged._sourceFields.zoning = `${z.fieldMap.zoning} (${z.source.name}, at parcel label point)`;
+          if (zf.description) p.merged._sourceFields.zoning_description = `${z.fieldMap.zoning_description} (${z.source.name})`;
+          z.assigned += 1;
+          assigned += 1;
+          break outer;
+        }
+      }
+    }
+    return assigned;
+  }
   var ParcelService = class {
     /**
-     * @param {{counties: GeoJSON.FeatureCollection, providers?: object[], statewide?: object}} opts
+     * @param {{counties: GeoJSON.FeatureCollection, providers?: object[], statewide?: object, staticLoader?: Function}} opts
      */
-    constructor({ counties, providers = PROVIDERS, statewide = STATEWIDE }) {
+    constructor({ counties, providers = PROVIDERS, statewide = STATEWIDE, staticLoader = defaultStaticLoader }) {
       this.counties = counties;
       this.providers = providers;
       this.statewide = statewide;
+      this.staticLoader = staticLoader;
       this.countyBBoxes = counties.features.map((f) => ({ f, bbox: geometryBBox(f.geometry), name: f.properties.name }));
       this.fipsToName = /* @__PURE__ */ new Map();
       for (const f of counties.features) {
@@ -3288,71 +4015,239 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         const provider = this.providerFor(county);
         if (provider) {
           const added = await this.runProvider(provider, bbox, county, records, report, signal);
-          if (added !== false && added > 0) return { county, ok: true };
+          if (added !== false && added > 0) return { county, ok: true, provider };
         }
-        return { county, ok: false };
+        return { county, ok: false, provider };
       });
       const results = await Promise.all(countyJobs);
-      const needStatewide = results.filter((r) => !r.ok).map((r) => r.county);
-      if (needStatewide.length || counties.length === 0) {
-        const r = await this.runProvider(this.statewide, bbox, null, records, report, signal, counties.length ? new Set(needStatewide.map((c) => c.toLowerCase())) : null);
-        if (r === false && !statuses.some((s) => s.ok && s.role === "primary")) {
-        }
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length || counties.length === 0) {
+        const zoning = failed.flatMap((r) => r.provider?.zoning || []);
+        await this.runProvider(this.statewide, bbox, null, records, report, signal, counties.length ? new Set(failed.map((r) => r.county.toLowerCase())) : null, zoning);
       }
       return { records: [...records.values()], statuses, counties };
     }
-    async runProvider(provider, bbox, county, records, report, signal, onlyCounties = null) {
+    /** Queries zoning-district polygons for the area; resolves the sets that answered. */
+    async fetchZoning(provider, zoningSources, bbox, county, report, signal) {
+      if (!zoningSources.length) return [];
+      const area = expandBBox(bbox, 400);
+      const sets = await Promise.all(zoningSources.map(async (source) => {
+        if (source.extent && !bboxIntersects(source.extent, area)) return null;
+        try {
+          const prep = await prepareSource(source, { signal });
+          const fm = prep.fieldMap;
+          if (!fm.zoning) throw new ArcGISError("No zoning code field found on this layer", { url: source.url, code: "schema" });
+          const fc = await queryFeatures(source.url, { bbox: area, info: prep.info, signal, outFields: [fm.zoning, fm.zoning_description, source.jurisdictionField].filter(Boolean) });
+          const exclude = source.exclude ? new RegExp(source.exclude, "i") : null;
+          const features = [];
+          for (const f of fc.features) {
+            if (!f.geometry) continue;
+            const props = f.properties || {};
+            const code = cleanText(getField(props, fm.zoning));
+            if (!code || exclude && exclude.test(code)) continue;
+            let description = cleanText(getField(props, fm.zoning_description));
+            if (!description) description = decodeDomain(prep, fm.zoning, getField(props, fm.zoning)) || "";
+            if (description === code) description = "";
+            const jurisdiction = source.jurisdictionField ? cleanText(getField(props, source.jurisdictionField)) : "";
+            features.push({ geometry: f.geometry, bbox: geometryBBox(f.geometry), code, description, jurisdiction });
+          }
+          const set = { source, features, fieldMap: fm, assigned: 0 };
+          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: "zoning", count: features.length, truncated: fc.truncated, fieldMap: fm, county, confidence: source.confidence, jurisdiction: source.jurisdiction || "" });
+          return set;
+        } catch (err) {
+          if (isAbort(err) || signal?.aborted) throw err;
+          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: "zoning", error: errText(err), county, jurisdiction: source.jurisdiction || "" });
+          return null;
+        }
+      }));
+      return sets.filter(Boolean);
+    }
+    /** Attribute-only layer joined by bbox: returns a Map(normalized parcel id -> attrs). */
+    async fetchBBoxEnrich(provider, source, bbox, county, report, signal) {
+      try {
+        const prep = await prepareSource(source, { signal });
+        const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ["*"], returnGeometry: false });
+        const byId = /* @__PURE__ */ new Map();
+        for (const f of fc.features) {
+          const attrs = extractAttrs(f.properties || {}, prep, source);
+          attrs._sourceName = source.name;
+          const k = normalizeParcelId(attrs.parcel_id);
+          if (k) putEnrich(byId, k, attrs);
+        }
+        report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: fc.features.length, role: "enrich", fieldMap: prep.fieldMap, county, confidence: source.confidence });
+        return { source, byId, prep };
+      } catch (err) {
+        if (isAbort(err) || signal?.aborted) throw err;
+        report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: "enrich", error: errText(err), county });
+        return null;
+      }
+    }
+    /** Attribute table joined by parcel id list (WHERE <id> IN (...), in chunks). */
+    async fetchIdEnrich(provider, source, prepared, county, report, signal) {
+      try {
+        const prep = await prepareSource(source, { signal });
+        const joinField = source.joinField || prep.fieldMap.parcel_id;
+        if (!joinField) throw new ArcGISError("No parcel id field found on this table", { url: source.url, code: "schema" });
+        const numeric = /Integer|Double|Single|OID/i.test(prep.fieldTypes[joinField.toLowerCase()] || "");
+        const values = /* @__PURE__ */ new Set();
+        for (const p of prepared) {
+          const v = source.joinValue ? source.joinValue(p.merged, p.f.properties || {}) : p.merged.parcel_id;
+          if (!has(v)) continue;
+          const raw = String(v).trim();
+          values.add(raw);
+          const bare = normalizeParcelId(raw);
+          if (bare && bare !== raw.toUpperCase()) values.add(bare);
+        }
+        const list = [...values];
+        const byId = /* @__PURE__ */ new Map();
+        let rows = 0;
+        for (let i = 0; i < list.length; i += ID_JOIN_CHUNK) {
+          if (signal?.aborted) throw new ArcGISError("Cancelled", { code: "aborted" });
+          const chunk = list.slice(i, i + ID_JOIN_CHUNK);
+          const lits = numeric ? chunk.filter((v) => /^-?\d+(\.\d+)?$/.test(v)) : chunk.map((v) => `'${v.replace(/'/g, "''")}'`);
+          if (!lits.length) continue;
+          const where = `${joinField} IN (${lits.join(",")})`;
+          const fc = await queryFeatures(source.url, { where, info: prep.info, signal, outFields: ["*"], returnGeometry: false });
+          for (const f of fc.features) {
+            const attrs = extractAttrs(f.properties || {}, prep, source);
+            attrs._sourceName = source.name;
+            const k = normalizeParcelId(attrs.parcel_id || getField(f.properties || {}, joinField));
+            if (k) putEnrich(byId, k, attrs);
+            rows += 1;
+          }
+        }
+        report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: rows, role: "enrich", joined: byId.size, fieldMap: prep.fieldMap, county, confidence: source.confidence });
+        return { source, byId, prep };
+      } catch (err) {
+        if (isAbort(err) || signal?.aborted) throw err;
+        report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: "enrich", error: errText(err), county });
+        return null;
+      }
+    }
+    /** Pre-built assessor extract (manifest + shards keyed by normalized parcel id). */
+    async fetchStaticEnrich(provider, source, prepared, county, report, signal) {
+      const st = source.static;
+      try {
+        const manifest = await loadStatic(this.staticLoader, st.manifest, signal);
+        const prefixLength = Number(manifest.prefixLength || st.prefixLength || 3);
+        const available = Array.isArray(manifest.shards) ? new Set(manifest.shards.map(String)) : null;
+        const prefixes = /* @__PURE__ */ new Set();
+        for (const p of prepared) {
+          const k = normalizeParcelId(p.merged.parcel_id);
+          if (k.length >= prefixLength) prefixes.add(k.slice(0, prefixLength));
+        }
+        const byId = /* @__PURE__ */ new Map();
+        let rows = 0;
+        const failedShards = [];
+        await Promise.all([...prefixes].map(async (prefix) => {
+          if (available && !available.has(prefix)) return;
+          let shard;
+          try {
+            shard = await loadStatic(this.staticLoader, st.shard.replace("{prefix}", prefix), signal);
+          } catch (err) {
+            if (isAbort(err)) throw err;
+            if (err?.code === 404) return;
+            failedShards.push(`${prefix}: ${errText(err)}`);
+            return;
+          }
+          const recs = shard.records || shard;
+          for (const [id, rec] of Object.entries(recs)) {
+            if (id.startsWith("_") || !rec || typeof rec !== "object") continue;
+            const attrs = staticAttrs(rec, source);
+            attrs._sourceName = source.name;
+            const k = normalizeParcelId(id);
+            if (k) putEnrich(byId, k, attrs);
+            rows += 1;
+          }
+        }));
+        let joined = 0;
+        for (const p of prepared) if (byId.has(normalizeParcelId(p.merged.parcel_id))) joined += 1;
+        const url = source.url || (manifest.sourceUrl || st.manifest);
+        const note = failedShards.length ? `${failedShards.length} of ${prefixes.size} shard file(s) could not be loaded (${failedShards.slice(0, 3).join("; ")}); parcels in them show no deed data.` : manifest.notes || source.notes || "";
+        report({
+          provider: provider.key,
+          providerName: provider.name,
+          source: source.name,
+          url,
+          ok: true,
+          role: "static",
+          count: rows,
+          joined,
+          generated: manifest.generated || "",
+          asOf: manifest.asOf || "",
+          county,
+          confidence: source.confidence,
+          fieldMap: manifest.fields || {},
+          note,
+          failedShards: failedShards.length
+        });
+        return { source, byId, prep: null };
+      } catch (err) {
+        if (isAbort(err) || signal?.aborted) throw err;
+        const missing = err?.code === 404 || err?.code === "network";
+        report({
+          provider: provider.key,
+          providerName: provider.name,
+          source: source.name,
+          url: source.url || st.manifest,
+          ok: false,
+          role: "static",
+          county,
+          error: missing ? `${errText(err)} \u2014 the assessor extract is published with the site by the weekly data workflow` : errText(err)
+        });
+        return null;
+      }
+    }
+    async runProvider(provider, bbox, county, records, report, signal, onlyCounties = null, extraZoning = []) {
+      const seenZoning = /* @__PURE__ */ new Set();
+      const zoningSources = [...extraZoning, ...provider.zoning || this.statewide?.zoning || []].filter((s) => !seenZoning.has(s.id) && seenZoning.add(s.id));
+      const isBBoxEnrich = (s) => s.enrich && !s.static && s.joinBy !== "ids";
+      const zoningJob = this.fetchZoning(provider, zoningSources, bbox, county, report, signal);
+      const earlyJobs = provider.sources.filter((s) => isBBoxEnrich(s) && !s.geometry).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
+      for (const p of [zoningJob, ...earlyJobs]) p.catch(() => {
+      });
+      const settle = () => Promise.allSettled([zoningJob, ...earlyJobs]);
       let primary = null;
       let primaryPrep = null;
       let primaryFC = null;
       const errors = [];
+      const unusable = /* @__PURE__ */ new Set();
       const geometrySources = provider.sources.filter((s) => s.geometry);
-      for (const source of geometrySources) {
-        if (signal?.aborted) throw new ArcGISError("Cancelled", { code: "aborted" });
-        try {
-          const prep = await prepareSource(source, { signal });
-          const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ["*"] });
-          if (!fc.features.length && !primary) {
-            primary = source;
-            primaryPrep = prep;
-            primaryFC = fc;
-            report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: "primary", count: 0, county, confidence: source.confidence, fieldMap: prep.fieldMap, note: "no parcels in this area" });
-            continue;
+      try {
+        for (const source of geometrySources) {
+          if (signal?.aborted) throw new ArcGISError("Cancelled", { code: "aborted" });
+          try {
+            const prep = await prepareSource(source, { signal });
+            const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ["*"] });
+            if (!fc.features.length) unusable.add(source);
+            if (!fc.features.length && !primary) {
+              primary = source;
+              primaryPrep = prep;
+              primaryFC = fc;
+              report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, role: "primary", count: 0, county, confidence: source.confidence, fieldMap: prep.fieldMap, note: "no parcels in this area" });
+              continue;
+            }
+            if (fc.features.length) {
+              primary = source;
+              primaryPrep = prep;
+              primaryFC = fc;
+              break;
+            }
+          } catch (err) {
+            if (isAbort(err) || signal?.aborted) throw err;
+            unusable.add(source);
+            errors.push({ source: source.name, url: source.url, error: errText(err) });
+            report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, error: errText(err), county });
           }
-          if (fc.features.length) {
-            primary = source;
-            primaryPrep = prep;
-            primaryFC = fc;
-            break;
-          }
-        } catch (err) {
-          if (isAbort(err) || signal?.aborted) throw err;
-          errors.push({ source: source.name, url: source.url, error: err.message || String(err) });
-          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, error: err.message || String(err), county });
         }
+      } catch (err) {
+        await settle();
+        throw err;
       }
-      if (!primary) return false;
-      const enrichers = provider.sources.filter((s) => s.enrich && s !== primary);
-      const enrichMaps = [];
-      await Promise.all(enrichers.map(async (source) => {
-        try {
-          const prep = await prepareSource(source, { signal });
-          const fc = await queryFeatures(source.url, { bbox, info: prep.info, signal, outFields: ["*"], returnGeometry: false });
-          const byId = /* @__PURE__ */ new Map();
-          for (const f of fc.features) {
-            const attrs = extractAttrs(f.properties || {}, prep, source);
-            attrs._sourceName = source.name;
-            const k = normalizeParcelId(attrs.parcel_id);
-            if (k) byId.set(k, attrs);
-          }
-          enrichMaps.push({ source, byId, prep });
-          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: true, count: fc.features.length, role: "enrich", fieldMap: prep.fieldMap, county, confidence: source.confidence });
-        } catch (err) {
-          if (isAbort(err) || signal?.aborted) throw err;
-          report({ provider: provider.key, providerName: provider.name, source: source.name, url: source.url, ok: false, role: "enrich", error: err.message || String(err), county });
-        }
-      }));
-      if (signal?.aborted) throw new ArcGISError("Cancelled", { code: "aborted" });
+      if (!primary) {
+        await settle();
+        return false;
+      }
       const prepared = [];
       for (const f of primaryFC.features) {
         const props = f.properties || {};
@@ -3361,16 +4256,37 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         if (attrs.county) attrs.county = this.countyName(attrs.county);
         const featureCounty = attrs.county || county || (provider.counties[0] !== "*" ? provider.counties[0] : "");
         if (onlyCounties && featureCounty && !onlyCounties.has(String(featureCounty).toLowerCase())) continue;
-        const k = normalizeParcelId(attrs.parcel_id);
+        prepared.push({ f, merged: attrs, featureCounty });
+      }
+      const lateJobs = provider.sources.filter((s) => isBBoxEnrich(s) && s.geometry && s !== primary && !unusable.has(s)).map((s) => this.fetchBBoxEnrich(provider, s, bbox, county, report, signal));
+      const idEnrichers = provider.sources.filter((s) => s.enrich && s !== primary && (s.static || s.joinBy === "ids"));
+      const idJobs = prepared.length ? idEnrichers.map((s) => s.static ? this.fetchStaticEnrich(provider, s, prepared, county, report, signal) : this.fetchIdEnrich(provider, s, prepared, county, report, signal)) : [];
+      const [zoningSets, ...enrichResults] = await Promise.all([zoningJob, ...earlyJobs, ...lateJobs, ...idJobs]);
+      if (signal?.aborted) throw new ArcGISError("Cancelled", { code: "aborted" });
+      const order = new Map(provider.sources.map((s, i) => [s, i]));
+      const enrichMaps = enrichResults.filter(Boolean).sort((a, b) => (order.get(a.source) ?? 99) - (order.get(b.source) ?? 99));
+      for (const p of prepared) {
+        const k = normalizeParcelId(p.merged.parcel_id);
         const extras = k ? enrichMaps.map((e) => e.byId.get(k)).filter(Boolean) : [];
-        const merged = extras.length ? mergeAttrs(attrs, extras) : attrs;
-        prepared.push({ f, merged, featureCounty });
+        if (extras.length) p.merged = mergeAttrs(p.merged, extras);
       }
       if (primary.lookup) {
         for (const p of prepared) {
           if (p.merged._rawCounty === void 0) p.merged._rawCounty = "";
         }
         await applyLookup(primary, prepared.map((p) => p.merged), signal);
+      }
+      let zoned = zoningSets.length ? assignZoning(prepared, zoningSets) : 0;
+      if (zoningSources.length) {
+        const area = expandBBox(bbox, 400);
+        const outside = prepared.filter((p) => !p.merged.zoning && p._label && !pointInBBox(p._label, area));
+        if (outside.length) {
+          const pts = outside.map((p) => p._label);
+          const ptBBox = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))];
+          const extraSets = await this.fetchZoning(provider, zoningSources, ptBBox, county, () => {
+          }, signal);
+          if (extraSets.length) zoned += assignZoning(outside, extraSets);
+        }
       }
       let added = 0;
       for (const { f, merged, featureCounty } of prepared) {
@@ -3395,7 +4311,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           layerName: primaryPrep.info.name,
           county,
           errors,
-          confidence: primary.confidence
+          confidence: primary.confidence,
+          zoned
         });
       }
       return added;
@@ -3552,10 +4469,16 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     { pattern: "MULTI CARE", entity: "MultiCare Health System", relationship: "owned" },
     { pattern: "MULTICARE HEALTH SYSTEM", entity: "MultiCare Health System", relationship: "owned" },
     { pattern: "TACOMA GENERAL HOSP", entity: "MultiCare Tacoma General Hospital", relationship: "owned" },
+    { pattern: "TACOMA GENERAL ALLENMORE", entity: "MultiCare Tacoma General Allenmore Hospital", relationship: "owned" },
     { pattern: "MARY BRIDGE", entity: "MultiCare Mary Bridge Children\u2019s Hospital", relationship: "owned" },
     { pattern: "ALLENMORE HOSP", entity: "MultiCare Allenmore Hospital", relationship: "owned" },
+    // "MHS" is MultiCare's own abbreviation in facility registrations (e.g. "MHS Good Samaritan Hospital")
+    { pattern: "MHS GOOD SAMARITAN", entity: "MultiCare Good Samaritan Hospital (Puyallup)", relationship: "owned", counties: ["Pierce", "King"] },
+    { pattern: "MHS TACOMA GENERAL", entity: "MultiCare Tacoma General Hospital", relationship: "owned", counties: ["Pierce", "King"] },
+    { pattern: "MHS ALLENMORE", entity: "MultiCare Allenmore Hospital", relationship: "owned", counties: ["Pierce", "King"] },
+    { pattern: "MHS MARY BRIDGE", entity: "MultiCare Mary Bridge Children\u2019s Hospital", relationship: "owned", counties: ["Pierce", "King"] },
     { pattern: "GOOD SAMARITAN HOSP", entity: "MultiCare Good Samaritan Hospital (Puyallup)", relationship: "owned", counties: ["Pierce"] },
-    { pattern: "GOOD SAMARITAN COMMUNITY HEALTH", entity: "MultiCare Good Samaritan (Puyallup)", relationship: "owned", counties: ["Pierce"] },
+    { pattern: "GOOD SAMARITAN COMMUNITY HEALTH", entity: "MultiCare Good Samaritan (Puyallup; pre-2010 corporate name Good Samaritan Community Healthcare)", relationship: "owned", counties: ["Pierce"] },
     { pattern: "AUBURN REGIONAL MEDICAL", entity: "MultiCare Auburn Medical Center", relationship: "owned" },
     { pattern: "AUBURN MEDICAL CENTER", entity: "MultiCare Auburn Medical Center", relationship: "owned", counties: ["King"] },
     { pattern: "COVINGTON MEDICAL CENTER", entity: "MultiCare Covington Medical Center", relationship: "owned" },
@@ -3563,9 +4486,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     { pattern: "VALLEY HOSPITAL", entity: "MultiCare Valley Hospital (Spokane Valley)", relationship: "owned", counties: ["Spokane"] },
     { pattern: "ROCKWOOD CLINIC", entity: "MultiCare Rockwood Clinic", relationship: "owned" },
     { pattern: "ROCKWOOD HEALTH", entity: "MultiCare Rockwood", relationship: "owned", counties: ["Spokane"] },
-    { pattern: "INLAND NORTHWEST HEALTH", entity: "MultiCare Inland Northwest", relationship: "owned", counties: ["Spokane"] },
+    // "Inland Northwest Health Services" (INHS) is a separate, Providence-linked nonprofit, so the
+    // regional brand "MultiCare Inland Northwest" is not matched on its own.
+    { pattern: "MULTICARE INLAND NORTHWEST", entity: "MultiCare Inland Northwest", relationship: "owned", counties: ["Spokane"] },
     { pattern: "CAPITAL MEDICAL CENTER", entity: "MultiCare Capital Medical Center (Olympia)", relationship: "owned" },
-    { pattern: "YAKIMA VALLEY MEMORIAL", entity: "MultiCare Yakima Memorial Hospital", relationship: "owned" },
+    { pattern: "YAKIMA VALLEY MEMORIAL", entity: "MultiCare Yakima Memorial Hospital (Yakima Valley Memorial Hospital Association)", relationship: "owned" },
     { pattern: "VIRGINIA MASON MEMORIAL", entity: "MultiCare Yakima Memorial (formerly Virginia Mason Memorial)", relationship: "historical_name", counties: ["Yakima"] },
     { pattern: "MEMORIAL HOSPITAL ASSOC", entity: "Yakima Valley Memorial Hospital Association (MultiCare)", relationship: "owned", counties: ["Yakima"] },
     { pattern: "INDIGO URGENT CARE", entity: "MultiCare Indigo Urgent Care", relationship: "owned" },
@@ -3574,6 +4499,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     { pattern: "NAVOS", entity: "Navos (MultiCare Behavioral Health)", relationship: "affiliate", counties: ["King"] },
     { pattern: "GREATER LAKES MENTAL", entity: "Greater Lakes Mental Healthcare (MultiCare Behavioral Health)", relationship: "affiliate" },
     { pattern: "WELLFOUND BEHAVIORAL", entity: "Wellfound Behavioral Health Hospital (MultiCare / Virginia Mason Franciscan joint venture)", relationship: "joint_venture" },
+    { pattern: "DEACONESS FOUNDATION", entity: "Deaconess Foundation (MultiCare Inland Northwest)", relationship: "foundation", counties: ["Spokane"] },
+    { pattern: "GOOD SAMARITAN FOUNDATION", entity: "Good Samaritan Foundation (MultiCare, Puyallup)", relationship: "foundation", counties: ["Pierce"] },
     { pattern: "MULTICARE FOUNDATION", entity: "MultiCare Health Foundation", relationship: "foundation" },
     { pattern: "MULTICARE HEALTH FOUNDATION", entity: "MultiCare Health Foundation", relationship: "foundation" },
     { pattern: "MARY BRIDGE CHILDRENS FOUNDATION", entity: "Mary Bridge Children\u2019s Foundation", relationship: "foundation" }
@@ -3583,8 +4510,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     // Care Net pregnancy centers (e.g. "CARE NET/Allenmore Children & Youth")
     "VALLEY MEDICAL CENTER",
     // Renton, UW Medicine
-    "GOOD SAMARITAN SOCIETY"
+    "PUBLIC HOSPITAL DISTRICT",
+    // e.g. Public Hospital District No. 1 of King County (Valley Medical Center)
+    "GOOD SAMARITAN SOCIETY",
     // Evangelical Lutheran Good Samaritan Society senior living
+    "INLAND NORTHWEST HEALTH SERVICES"
+    // INHS: separate nonprofit (St. Luke's Rehabilitation), Providence-linked
   ];
   function normalizeName(s) {
     return String(s || "").toUpperCase().replace(/&/g, " AND ").replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -3605,7 +4536,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (!pn) continue;
       if (p.counties && p.counties.length && county && !p.counties.map(normalizeName).includes(normalizeName(county))) continue;
       if (p.counties && p.counties.length && !county) {
-        if (pn.split(" ").length < 2) continue;
+        if (!/(MULTICARE|MULTI CARE|MARY BRIDGE|MHS )/.test(name)) continue;
       }
       if (containsToken(name, pn)) {
         const rank2 = RANK[p.relationship] ?? 9;
@@ -3666,8 +4597,9 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   function csvCell(v) {
     if (v === null || v === void 0) return "";
-    const s = String(v);
-    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = String(v);
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+    return /[",\n\r']/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
   function toCSV(rows, columns) {
     const head = columns.map((c) => csvCell(c.label)).join(",");
@@ -3694,6 +4626,30 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   // js/table.js
   var num = (a, b) => (a ?? -Infinity) - (b ?? -Infinity);
   var str = (a, b) => String(a ?? "").localeCompare(String(b ?? ""), void 0, { sensitivity: "base", numeric: true });
+  var NA = '<span class="muted">n/a</span>';
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function formatSaleDate(iso) {
+    if (!iso) return "";
+    const [y, m, d] = String(iso).split("-");
+    if (!m) return y;
+    if (!d) return `${MONTHS[Number(m) - 1] || m} ${y}`;
+    return `${m}/${d}/${y}`;
+  }
+  function ownerMarkers(r) {
+    let h = "";
+    if (r.ownerSource === "legal") {
+      h += r.ownerPublished ? '<span class="sup" title="The taxpayer name is blank in the assessor record; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>' : '<span class="sup" title="The taxpayer name is not published by this data source; showing the grantee on the most recent recorded deed (legal owner)">&sect;</span>';
+    }
+    if (r.ownerNote) h += `<span class="sup" title="${escapeHtml(r.ownerNote)}">&#8225;</span>`;
+    return h;
+  }
+  function missingOwnerText(r) {
+    return r.ownerPublished ? "blank in assessor record" : "not published";
+  }
+  function saleNote(r) {
+    if (r.saleValid === false) return `Not treated as an arm's-length market sale by the assessor${r.saleExcludeReason ? ` (${r.saleExcludeReason})` : ""}${r.saleDeedType ? ` \xB7 ${r.saleDeedType}` : ""}`;
+    return r.saleDeedType || "";
+  }
   var ResultsTable = class {
     constructor(container, { onHover, onSelect } = {}) {
       this.el = container;
@@ -3702,7 +4658,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       this.records = [];
       this.sortKey = "id";
       this.sortDir = 1;
-      this.optional = { parcelId: false, situs: false, distance: false };
+      this.optional = { parcelId: false, situs: false, distance: false, legalOwner: true, zoning: true, sale: true };
       this.unit = "yd";
       this.el.addEventListener("click", (e) => {
         const th = e.target.closest("th[data-key]");
@@ -3711,7 +4667,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           if (this.sortKey === k) this.sortDir *= -1;
           else {
             this.sortKey = k;
-            this.sortDir = k === "owner" || k === "use" || k === "situs" ? 1 : k === "id" ? 1 : -1;
+            this.sortDir = ["owner", "legalOwner", "use", "situs", "zoning", "parcelId", "id"].includes(k) ? 1 : -1;
           }
           this.render();
           return;
@@ -3731,15 +4687,54 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     columns() {
       const cols = [
         { key: "id", label: "ID", cls: "id", value: (r) => r.id, html: (r) => String(r.id), sort: (a, b) => num(a.id, b.id) },
-        { key: "owner", label: "True Owner", value: (r) => r.owner || "", html: (r) => (r.owner ? escapeHtml(r.owner) : '<span class="muted">not published</span>') + (r.ownerNote ? '<span class="sup" title="' + escapeHtml(r.ownerNote) + '">&#8225;</span>' : ""), sort: (a, b) => str(a.owner, b.owner) }
+        { key: "owner", label: "True Owner", value: (r) => r.owner || "", html: (r) => r.owner ? escapeHtml(r.owner) + ownerMarkers(r) : `<span class="muted">${missingOwnerText(r)}</span>`, sort: (a, b) => str(a.owner, b.owner) }
       ];
+      if (this.optional.legalOwner) {
+        cols.push({
+          key: "legalOwner",
+          label: "Legal Owner (deed)",
+          value: (r) => r.legalOwner || "",
+          html: (r) => r.legalOwner ? escapeHtml(r.legalOwner) + (r.notes?.legal_owner ? `<span class="sup" title="${escapeHtml(r.notes.legal_owner)}">&#8225;</span>` : "") : NA,
+          sort: (a, b) => str(a.legalOwner, b.legalOwner)
+        });
+      }
       if (this.optional.parcelId) cols.push({ key: "parcelId", label: "Parcel #", value: (r) => r.parcelId, html: (r) => escapeHtml(r.parcelId), sort: (a, b) => str(a.parcelId, b.parcelId) });
       if (this.optional.situs) cols.push({ key: "situs", label: "Site Address", value: (r) => r.situs, html: (r) => escapeHtml(r.situs || ""), sort: (a, b) => str(a.situs, b.situs) });
       cols.push(
         { key: "value", label: "Taxable Value", cls: "num", value: (r) => r.value ?? "", html: (r) => formatCurrency(r.value) + (r.value !== null && r.valueKind !== "taxable" ? '<span class="sup" title="' + escapeHtml(valueNote(r)) + '">*</span>' : ""), sort: (a, b) => num(a.value, b.value) },
         { key: "acres", label: "Land AC", cls: "num", value: (r) => r.acres !== null && r.acres !== void 0 ? Number(r.acres.toFixed(3)) : "", html: (r) => formatAcres(r.acres) + (r.acresSource === "gis" ? '<span class="sup" title="Computed from parcel geometry">&dagger;</span>' : ""), sort: (a, b) => num(a.acres, b.acres) },
-        { key: "use", label: "Use", value: (r) => r.useText || "", html: (r) => escapeHtml(r.useText || "") || '<span class="muted">n/a</span>', sort: (a, b) => str(a.useText, b.useText) }
+        { key: "use", label: "Use", value: (r) => r.useText || "", html: (r) => escapeHtml(r.useText || "") || NA, sort: (a, b) => str(a.useText, b.useText) }
       );
+      if (this.optional.zoning) {
+        cols.push({
+          key: "zoning",
+          label: "Zoning",
+          cls: "zoning",
+          value: (r) => r.zoning || "",
+          html: (r) => r.zoning ? `<span title="${escapeHtml([r.zoningDescription, r.zoningJurisdiction, r.zoningSource].filter(Boolean).join(" \xB7 "))}">${escapeHtml(r.zoning)}</span>` : NA,
+          sort: (a, b) => str(a.zoning, b.zoning)
+        });
+      }
+      if (this.optional.sale) {
+        cols.push(
+          {
+            key: "saleDate",
+            label: "Last Sale",
+            cls: "num",
+            value: (r) => r.saleDate || "",
+            html: (r) => r.saleDate ? `<span title="${escapeHtml(saleNote(r))}">${escapeHtml(formatSaleDate(r.saleDate))}</span>${r.saleValid === false ? '<span class="sup" title="' + escapeHtml(saleNote(r)) + '">~</span>' : ""}` : NA,
+            sort: (a, b) => str(a.saleDate, b.saleDate)
+          },
+          {
+            key: "salePrice",
+            label: "Sale Price",
+            cls: "num",
+            value: (r) => r.salePrice ?? "",
+            html: (r) => r.salePrice !== null && r.salePrice !== void 0 ? formatCurrency(r.salePrice) + (r.saleValid === false ? `<span class="sup" title="${escapeHtml(saleNote(r))}">~</span>` : "") : NA,
+            sort: (a, b) => num(a.salePrice, b.salePrice)
+          }
+        );
+      }
       if (this.optional.distance) cols.push({ key: "distance", label: "Distance", cls: "num", value: (r) => r.distanceM !== null ? Number(r.distanceM.toFixed(1)) : "", html: (r) => r.distanceM === 0 ? "contains pin" : formatDistance(r.distanceM, this.unit), sort: (a, b) => num(a.distanceM, b.distanceM) });
       return cols;
     }
@@ -3750,7 +4745,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     }
     sorted() {
       const cols = this.columns();
-      const col = cols.find((c) => c.key === this.sortKey) || cols[0];
+      let col = cols.find((c) => c.key === this.sortKey);
+      if (!col) {
+        this.sortKey = "id";
+        this.sortDir = 1;
+        col = cols[0];
+      }
       return [...this.records].sort((a, b) => this.sortDir * col.sort(a, b) || num(a.id, b.id));
     }
     render() {
@@ -3790,7 +4790,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const cols = [
         { label: "ID", value: (r) => r.id },
         { label: "Owner", value: (r) => r.owner },
+        { label: "Owner source", value: (r) => r.ownerSource === "legal" ? "legal owner (deed grantee)" : r.ownerSource === "taxpayer" ? "taxpayer of record" : "" },
         { label: "Owner note", value: (r) => r.ownerNote },
+        { label: "Legal owner (deed)", value: (r) => r.legalOwner },
+        { label: "Legal owner note", value: (r) => r.notes?.legal_owner || "" },
+        { label: "Business on parcel", value: (r) => r.businessName },
         { label: "Parcel #", value: (r) => r.parcelId },
         { label: "Site address", value: (r) => r.situs },
         { label: "City", value: (r) => r.city },
@@ -3801,14 +4805,28 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         { label: "Land value", value: (r) => r.landValue ?? "" },
         { label: "Improvement value", value: (r) => r.improvementValue ?? "" },
         { label: "Total market value", value: (r) => r.totalValue ?? "" },
+        { label: "Exemption", value: (r) => r.exemption },
         { label: "Land acres", value: (r) => r.acres !== null && r.acres !== void 0 ? Number(r.acres.toFixed(4)) : "" },
         { label: "Acres source", value: (r) => r.acresSource },
         { label: "Use", value: (r) => r.useText },
         { label: "Use code", value: (r) => r.useCode },
+        { label: "Zoning", value: (r) => r.zoning },
+        { label: "Zoning description", value: (r) => r.zoningDescription },
+        { label: "Zoning jurisdiction", value: (r) => r.zoningJurisdiction },
+        { label: "Zoning source", value: (r) => r.zoningSource },
+        { label: "Last sale date", value: (r) => r.saleDate || "" },
+        { label: "Last sale price", value: (r) => r.salePrice ?? "" },
+        { label: "Grantor (seller)", value: (r) => r.saleGrantor },
+        { label: "Deed type", value: (r) => r.saleDeedType },
+        { label: "Sale valid (assessor)", value: (r) => r.saleValid === null || r.saleValid === void 0 ? "" : r.saleValid ? "yes" : "no" },
+        { label: "Sale exclude reason", value: (r) => r.saleExcludeReason },
+        { label: "Last market sale date", value: (r) => r.validSaleDate || "" },
+        { label: "Last market sale price", value: (r) => r.validSalePrice ?? "" },
         { label: "Distance (m)", value: (r) => r.distanceM !== null ? Number(r.distanceM.toFixed(2)) : "" },
         { label: "MultiCare", value: (r) => r.multicare ? r.multicare.label : "" },
         { label: "MultiCare entity", value: (r) => r.multicare ? r.multicare.entity : "" },
-        { label: "MultiCare occupied", value: (r) => r.occupied ? "yes" : "" },
+        { label: "MultiCare matched on", value: (r) => r.multicare ? r.multicare.matchedOn || "" : "" },
+        { label: "MultiCare occupied", value: (r) => r.occupied ? r.occupiedBy || "yes" : "" },
         { label: "Assessor link", value: (r) => r.link },
         { label: "Data source", value: (r) => r.sourceName }
       ];
@@ -3864,7 +4882,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const rows = [...table.querySelectorAll("tbody tr")];
     if (!rows.length) return null;
     const headers = [...table.querySelectorAll("thead th")];
-    const keep = headers.map((th) => ["id", "owner", "value", "acres", "use"].includes(th.dataset.key));
+    const keep = headers.map((th) => ["id", "owner", "value", "acres", "use", "zoning"].includes(th.dataset.key));
     const cols = Math.max(1, Math.ceil(rows.length / ROWS_PER_COLUMN));
     const perCol = Math.ceil(rows.length / cols);
     const wrap = document.createElement("div");
@@ -4052,12 +5070,26 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return state.occupiedMarks[rec.markKey] ?? state.occupiedMarks[rec.key];
   }
   function classifyRecord(rec) {
-    rec.multicare = classifyOwner(rec.owner, { patterns: state.patterns, county: rec.county });
+    const opts = { patterns: state.patterns, county: rec.county };
+    let mc = classifyOwner(rec.owner, opts);
+    let matchedOn = mc ? rec.ownerSource === "legal" ? "legal owner (deed)" : "taxpayer of record" : "";
+    let deedDiffers = false;
+    if (!mc && rec.legalOwner && rec.legalOwner !== rec.owner) {
+      mc = classifyOwner(rec.legalOwner, opts);
+      if (mc) matchedOn = "legal owner (deed)";
+    } else if (mc && rec.ownerSource === "taxpayer" && rec.legalOwner && rec.legalOwner !== rec.owner && !classifyOwner(rec.legalOwner, opts)) {
+      deedDiffers = true;
+      matchedOn = `taxpayer of record; the latest deed names ${rec.legalOwner}`;
+    }
+    rec.multicare = mc ? { ...mc, matchedOn, deedDiffers } : null;
+    const biz = rec.businessName ? classifyOwner(rec.businessName, opts) : null;
     const mark = markOf(rec);
     const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-    rec.occupied = Boolean(mark) || Boolean(loc);
+    rec.occupied = Boolean(mark) || Boolean(loc) || Boolean(biz);
     if (mark) rec.occupiedBy = typeof mark === "string" ? mark : "Marked by user";
-    else rec.occupiedBy = loc ? loc.name : "";
+    else if (loc) rec.occupiedBy = loc.name;
+    else if (biz) rec.occupiedBy = `${rec.businessName} (business name on the assessor roll)`;
+    else rec.occupiedBy = "";
   }
   function initMap() {
     const map = L.map("map", { preferCanvas: true, zoomControl: true, worldCopyJump: false, minZoom: 5 });
@@ -4165,19 +5197,41 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   function popupHtml(rec) {
     const badges = [];
-    if (rec.multicare) badges.push(`<span class="badge ${isOwnedRelationship(rec.multicare.relationship) ? "" : "aff"}" title="${escapeHtml(rec.multicare.entity)}">${escapeHtml(rec.multicare.label)}</span>`);
+    if (rec.multicare) badges.push(`<span class="badge ${isOwnedRelationship(rec.multicare.relationship) ? "" : "aff"}" title="${escapeHtml(rec.multicare.entity)}${rec.multicare.matchedOn ? ` \xB7 matched on ${escapeHtml(rec.multicare.matchedOn)}` : ""}">${escapeHtml(rec.multicare.label)}</span>`);
     if (rec.occupied) badges.push(`<span class="badge occ" title="${escapeHtml(rec.occupiedBy || "")}">MultiCare occupied</span>`);
-    const rows = [
-      ["Owner", rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` <span class="muted">(${escapeHtml(rec.ownerNote)})</span>` : "") : '<span class="muted">not published by this source</span>'],
+    const muted = (t) => `<span class="muted">${escapeHtml(t)}</span>`;
+    const rows = [];
+    const noTaxpayer = rec.ownerPublished ? "blank in the assessor record" : "not published by this source";
+    if (rec.ownerSource === "legal") {
+      rows.push(["Owner (deed grantee)", escapeHtml(rec.owner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : "")]);
+      rows.push(["Taxpayer", muted(noTaxpayer)]);
+    } else {
+      rows.push(["Taxpayer / owner", rec.owner ? escapeHtml(rec.owner) + (rec.ownerNote ? ` ${muted(`(${rec.ownerNote})`)}` : "") : muted(noTaxpayer)]);
+      rows.push(["Legal owner (deed)", rec.legalOwner ? escapeHtml(rec.legalOwner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : "") : muted("not available")]);
+    }
+    if (rec.businessName) rows.push(["Business on parcel", `${escapeHtml(rec.businessName)} ${muted("(occupant per assessor, not ownership)")}`]);
+    rows.push(
       ["Parcel #", escapeHtml(rec.parcelId || "")],
       ["Address", escapeHtml([rec.situs, rec.city].filter(Boolean).join(", "))],
       [rec.valueKind === "taxable" ? "Taxable value" : "Value", rec.value !== null ? `${formatCurrency(rec.value)}${rec.valueKind !== "taxable" ? ` <span class="muted">(${escapeHtml(valueNote(rec))})</span>` : ""}` : '<span class="muted">n/a</span>']
-    ];
+    );
     if (rec.landValue !== null && rec.landValue !== void 0) rows.push(["Land value", formatCurrency(rec.landValue)]);
     if (rec.improvementValue !== null && rec.improvementValue !== void 0) rows.push(["Improvements", formatCurrency(rec.improvementValue)]);
     if (rec.totalValue !== null && rec.totalValue !== void 0 && rec.valueKind !== "total") rows.push(["Total market value", formatCurrency(rec.totalValue)]);
+    if (rec.exemption) rows.push(["Exemption", escapeHtml(rec.exemption)]);
     rows.push(["Land", `${formatAcres(rec.acres)} ac${rec.acresSource === "gis" ? ' <span class="muted">(from geometry)</span>' : rec.acresSource === "sqft" ? ' <span class="muted">(from lot sq ft)</span>' : ""}`]);
     rows.push(["Use", escapeHtml(rec.useText || rec.useCode || "n/a") + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : "")]);
+    rows.push(["Zoning", rec.zoning ? `<strong>${escapeHtml(rec.zoning)}</strong>${rec.zoningDescription ? ` ${escapeHtml(rec.zoningDescription)}` : ""} ${muted(`(${[rec.zoningJurisdiction, rec.zoningSource === "assessor" ? "assessor attribute" : rec.zoningSource].filter(Boolean).join(", ")})`)}` : muted("not available for this parcel")]);
+    if (rec.saleDate) {
+      const parts = [escapeHtml(formatSaleDate(rec.saleDate))];
+      if (rec.salePrice !== null && rec.salePrice !== void 0) parts.push(formatCurrency(rec.salePrice));
+      if (rec.saleDeedType) parts.push(escapeHtml(rec.saleDeedType));
+      let sale = parts.join(" \xB7 ");
+      if (rec.saleGrantor) sale += `<br>${muted(`from ${rec.saleGrantor}`)}`;
+      if (rec.saleValid === false) sale += `<br>${muted(`not an arm's-length market sale per the assessor${rec.saleExcludeReason ? `: ${rec.saleExcludeReason}` : ""}`)}`;
+      if (rec.validSaleDate && rec.validSaleDate !== rec.saleDate) sale += `<br>${muted(`last market sale ${formatSaleDate(rec.validSaleDate)}${rec.validSalePrice !== null && rec.validSalePrice !== void 0 ? ` \xB7 ${formatCurrency(rec.validSalePrice)}` : ""}`)}`;
+      rows.push(["Last sale", sale]);
+    } else rows.push(["Last sale", muted("not available from this source")]);
     if (rec.county) rows.push(["County", escapeHtml(rec.county)]);
     if (rec.distanceM !== null && rec.distanceM !== void 0) rows.push(["Distance", rec.distanceM === 0 ? "contains the pin" : formatDistance(rec.distanceM, state.ring.unit)]);
     const marked = Boolean(markOf(rec));
@@ -4189,7 +5243,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       <button class="btn btn-outline small" type="button" data-action="toggle-occupied" data-key="${escapeHtml(rec.key)}">${marked ? "Unmark occupied" : "Mark MultiCare occupied"}</button>
       <button class="btn btn-outline small" type="button" data-action="zoom" data-key="${escapeHtml(rec.key)}">Zoom</button>
     </div>
-    <div class="src">Source: ${escapeHtml(rec.sourceName)}${rec.sourceFields?.owner ? ` \xB7 owner field: ${escapeHtml(rec.sourceFields.owner)}` : ""}${rec.sourceFields?.taxable_value ? ` \xB7 value field: ${escapeHtml(rec.sourceFields.taxable_value)}` : ""}</div>
+    <div class="src">Source: ${escapeHtml(rec.sourceName)}${rec.sourceFields?.owner ? ` \xB7 owner field: ${escapeHtml(rec.sourceFields.owner)}` : ""}${rec.sourceFields?.legal_owner ? ` \xB7 legal owner: ${escapeHtml(rec.sourceFields.legal_owner)}` : ""}${rec.sourceFields?.taxable_value ? ` \xB7 value field: ${escapeHtml(rec.sourceFields.taxable_value)}` : ""}${rec.sourceFields?.sale_date ? ` \xB7 sale: ${escapeHtml(rec.sourceFields.sale_date)}` : ""}</div>
   </div>`;
   }
   function openPopup(key, latlng) {
@@ -4501,20 +5555,35 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       const fm = s.fieldMap || {};
       const mapRows = s.ok ? [
         ["owner", "Owner"],
+        ["legal_owner", "Legal owner"],
+        ["business_name", "Business name"],
         ["taxable_value", "Taxable value"],
         ["total_value", "Total value"],
         ["land_acres", "Acres"],
         ["land_sqft", "Lot sq ft"],
         ["use_description", "Use"],
         ["use_code", "Use code"],
+        ["zoning", "Zoning"],
+        ["zoning_description", "Zoning desc."],
+        ["sale_date", "Sale date"],
+        ["sale_price", "Sale price"],
+        ["sale_grantor", "Grantor"],
         ["parcel_id", "Parcel #"]
-      ].filter(([a]) => fm[a]).map(([a, label]) => `${label} \u2190 <code>${escapeHtml(fm[a])}</code>`) : [];
+      ].filter(([a]) => fm[a]).map(([a, label]) => `${label} \u2190 <code>${escapeHtml(typeof fm[a] === "string" ? fm[a] : String(fm[a]))}</code>`) : [];
+      const roleLabel = { enrich: "attribute join", static: "assessor extract", zoning: "zoning districts" }[s.role];
+      let status;
+      if (!s.ok) status = `<span class="status-err">unavailable</span> \xB7 ${escapeHtml(s.error || "")}`;
+      else if (s.role === "zoning") status = `<span class="status-ok">online</span> \xB7 ${s.count} zoning polygon${s.count === 1 ? "" : "s"} in area${s.jurisdiction ? ` \xB7 ${escapeHtml(s.jurisdiction)}` : ""}${s.truncated ? " (truncated)" : ""}`;
+      else if (s.role === "static") status = `<span class="status-ok">loaded</span> \xB7 ${s.joined ?? 0} parcel${s.joined === 1 ? "" : "s"} matched${s.generated ? ` \xB7 extract built ${escapeHtml(String(s.generated).slice(0, 10))}` : ""}${s.asOf ? ` from files dated ${escapeHtml(String(s.asOf).slice(0, 10))}` : ""}`;
+      else status = `<span class="status-ok">online</span> \xB7 ${s.count} record${s.count === 1 ? "" : "s"} in query envelope${s.joined !== void 0 ? ` \xB7 ${s.joined} parcels matched` : ""}${s.truncated ? " (truncated)" : ""}${s.zoned ? ` \xB7 zoning assigned to ${s.zoned}` : ""}`;
       items.push(`<div class="source ${s.ok ? "" : "err"}">
-      <div class="name">${escapeHtml(s.providerName || s.provider)}${s.role === "enrich" ? ' <span class="muted">(attribute join)</span>' : ""}</div>
-      <div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></div>
-      <div>${s.ok ? `<span class="status-ok">online</span> \xB7 ${s.count} record${s.count === 1 ? "" : "s"} in query envelope${s.truncated ? " (truncated)" : ""}` : `<span class="status-err">unavailable</span> \xB7 ${escapeHtml(s.error || "")}`}</div>
+      <div class="name">${escapeHtml(s.providerName || s.provider)}${roleLabel ? ` <span class="muted">(${roleLabel})</span>` : ""}</div>
+      <div>${/^https?:\/\//i.test(String(s.url || "")) ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a>` : escapeHtml(s.source)}</div>
+      <div>${status}</div>
       ${mapRows.length ? `<div class="fmap">${mapRows.join(" \xB7 ")}</div>` : ""}
-      ${s.ok && !fm.owner && s.role === "primary" ? '<div class="fmap">This layer does not publish owner names.</div>' : ""}
+      ${s.ok && s.note && s.role !== "primary" ? `<div class="fmap">${escapeHtml(s.note)}</div>` : ""}
+      ${s.ok && !fm.owner && s.role === "primary" ? '<div class="fmap">This layer does not publish taxpayer names; the legal owner from the latest deed is shown where available.</div>' : ""}
+      ${s.ok && s.role === "primary" && s.count > 0 && s.zoned === 0 && !fm.zoning ? '<div class="fmap">No zoning-district polygon covered these parcels.</div>' : ""}
       ${s.confidence && s.confidence !== "confirmed" ? `<div class="fmap">Endpoint ${escapeHtml(s.confidence === "likely" ? "documented but not independently verified" : "unverified; schema resolved at runtime")}.</div>` : ""}
     </div>`);
     }
@@ -4745,7 +5814,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     });
     const bindCol = (id, key) => {
       const el = $(id);
-      el.checked = Boolean(state.settings.cols[key]);
+      el.checked = key in state.settings.cols ? Boolean(state.settings.cols[key]) : Boolean(state.table.optional[key]);
       state.table.optional[key] = el.checked;
       el.addEventListener("change", () => {
         state.settings.cols[key] = el.checked;
@@ -4754,8 +5823,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         state.table.render();
       });
     };
+    bindCol("#col-legal", "legalOwner");
     bindCol("#col-parcel", "parcelId");
     bindCol("#col-address", "situs");
+    bindCol("#col-zoning", "zoning");
+    bindCol("#col-sale", "sale");
     bindCol("#col-distance", "distance");
     $("#btn-renumber").addEventListener("click", () => {
       const order = state.table.orderedKeys();
@@ -4782,8 +5854,16 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     $("#btn-print").addEventListener("click", () => {
       const { title, subtitle } = currentTitles();
       const counties = state.study.counties.join(", ");
-      const sources = [...new Set(state.study.statuses.filter((s) => s.ok).map((s) => s.source))].join("; ");
-      printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || "n/a"}${counties ? ` (${counties} County)` : ""}.` });
+      const byRole = (roles) => [...new Set(state.study.statuses.filter((s) => s.ok && s.count !== 0 && roles.includes(s.role || "primary")).map((s) => s.source))].join("; ");
+      const sources = byRole(["primary", "enrich", "static"]);
+      const zoning = [...new Set(state.study.records.map((r) => r.zoningSource).filter((z) => z && z !== "assessor"))].join("; ");
+      const recs = state.study.records;
+      const notes = [];
+      if (recs.some((r) => r.ownerSource === "legal")) notes.push("Where the taxpayer name is withheld, the owner shown is the grantee on the most recent recorded deed.");
+      if (recs.some((r) => r.value !== null && r.valueKind !== "taxable")) notes.push("Values are total market or land plus improvement values where the assessor publishes no taxable value.");
+      if (recs.some((r) => r.acresSource === "gis")) notes.push("Some acreages are computed from the parcel polygon.");
+      if (recs.some((r) => r.multicare?.deedDiffers)) notes.push("MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.");
+      printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || "n/a"}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}` });
     });
     window.addEventListener("resize", () => state.map.invalidateSize());
   }
@@ -4831,6 +5911,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     state.table.render();
     try {
       const counties = await loadData("wa_counties");
+      if (location.protocol === "file:") window.__STATIC_DATA_BASE = SITE_BASE;
       state.service = new ParcelService({ counties });
     } catch (err) {
       toast(`Failed to load county index: ${err.message}`, { error: true, ms: 8e3 });

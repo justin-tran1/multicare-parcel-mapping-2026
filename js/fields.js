@@ -19,6 +19,15 @@ export const ATTRS = [
   'use_description',
   'assessor_link',
   'county',
+  'legal_owner',
+  'zoning',
+  'zoning_description',
+  'sale_date',
+  'sale_price',
+  'sale_grantor',
+  'sale_deed_type',
+  'business_name',
+  'exemption',
 ];
 
 const ADDRESSY = /(addr|address|city|state|zip|mail|street|line)/i;
@@ -30,14 +39,16 @@ const HEURISTICS = {
     prefer: /^(pin|apn|parcel|taxparcel|tax_?parcel|taxparcelnumber|parcelid|parcel_?(id|no|num|number|nbr)|parcel_id_nr|pid|pid_num|prop_?id)$/i,
   },
   owner: {
-    include: /(taxpayer|owner|ownr|deed_?holder|tax_?payer)/i,
-    exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of)/i,
+    include: /(taxpayer|owner|ownr|tax_?payer)/i,
+    // title/legal/deed-holder fields belong to legal_owner
+    exclude: /(addr|address|city|state|zip|mail|line|type|code|count|pct|percent|flag|occup|id$|date|dt$|url|link|attn|care_?of|title|legal|deed|grantee|record)/i,
     prefer: /name/i,
     deprioritize: /[2-9]$/,
   },
   owner_address: {
     include: /(taxpayer|owner|ownr|mail).*?(addr|address|street|line)|(addr|address).*?(taxpayer|owner|mail)/i,
-    exclude: /(city|state|zip)/i,
+    // the title / deed holder's mailing line is not the taxpayer's address
+    exclude: /(city|state|zip|title|legal|deed|grantee)/i,
   },
   situs_address: {
     include: /(situs|site_?addr|site_?address|addr_?full|full_?addr|prop_?addr|property_?addr|location|address|street_?addr|physical_?addr)/i,
@@ -99,6 +110,51 @@ const HEURISTICS = {
     include: /(county|cnty|co_?name|county_?nm|county_?name)/i,
     exclude: /(fips|code|_cd$|id$|num)/i,
   },
+  legal_owner: {
+    include: /(title_?owner|deed_?holder|legal_?owner|grantee|buyer|record_?owner|owner_?of_?record)/i,
+    exclude: /(addr|address|city|state|zip|mail|id$|date|_dt$|type|code|count|flag)/i,
+    prefer: /name/i,
+  },
+  zoning: {
+    include: /(^zon(e|ing)|_zon(e|ing)|zone_?(code|cd|class|dist|district)|zoning_?(code|cd|class|dist|district)|zn_?code|zonecode|zoning$|zone$)/i,
+    // tax code areas, UTM/time/climate zones, utility zones, ordinance and area fields are
+    // not zoning districts
+    exclude: /(desc|description|name|text|label|overlay|prev|prior|proposed|future|comp|plan|flood|fire|school|seismic|airport|uga|_id$|id$|link|url|date|tax|tca|levy|utm|sewer|water|climate|snow|wind|time|acre|area|ord|market|nbhd|neighbo|value|appr|assess|police|ems|transit|parking|noise|hazard|liquef|wetland|shoreline|critical)/i,
+    prefer: /(^zoning$|^zone$|zone_?code|zone_?cd|zoning_?code|kca_?zoning|^zon_cur_cd$)/i,
+  },
+  zoning_description: {
+    include: /(zon(e|ing).*(desc|description|name|label|text)|(desc|description|name).*zon(e|ing))/i,
+    exclude: /(overlay|proposed|future|comp|plan|flood|fire|school|link|url|date|lu_?des|land_?use|designation)/i,
+  },
+  sale_date: {
+    include: /(sale.*(date|_dt$|dt$)|(date|dt).*sale|deed_?date|document_?date|doc_?date|transfer_?date|trnsf_?date|xfer_?date|recording_?date|excise_?date|sold_?date|date_?sold|year_?sold|sale_?yr|sale_?year)/i,
+    exclude: /(appraisal|assess|inspect|insp|create|edit|modif|update|retire|effective|expir|permit|build|record_?type|link|url)/i,
+    prefer: /(sale_?date|saledate|document_?date|trnsf_?date|transfer_?date)/i,
+  },
+  sale_price: {
+    include: /(sale.*(price|amt|amount|value|val)|(price|amt|amount).*sale|gross_?sale|consideration|selling_?price)/i,
+    // validity / qualification flags and excise-tax fields sit beside prices in WA sales tables
+    exclude: /(date|_dt$|per_?sq|psf|ratio|count|pct|percent|adj|prev|prior|link|url|verif|vrfy|type|code|flag|exclude|reason|excise|affidavit|reet|valid|qual|tax_?amt)/i,
+    prefer: /(sale_?price|saleprice|sale_?amount|saleamount|gross_?sale)/i,
+  },
+  sale_grantor: {
+    include: /(grantor|seller|sellr)/i,
+    exclude: /(addr|address|city|state|zip|id$|date|type|code)/i,
+  },
+  sale_deed_type: {
+    include: /(deed_?type|sale_?instrument|^instrument|transfer_?type|trnsf_?type|document_?type|doc_?type|sale_?type)/i,
+    exclude: /(date|_dt$|nbr|num|id$|code$)/i,
+  },
+  // The business operating on the parcel (occupant), which is not the owner of record.
+  business_name: {
+    include: /(business_?name|bus_?name|busname|^dba$|dba_?name|occupant|tenant_?name)/i,
+    exclude: /(addr|address|owner|taxpayer|id$|code|type|date|_dt$)/i,
+  },
+  exemption: {
+    include: /(exempt)/i,
+    exclude: /(amount|amt|value|val|pct|percent|date|_dt$|ind$|senior|count|id$|prior|prev|yr|year|flag|status|stat$)/i,
+    prefer: /(type|desc|description|code)/i,
+  },
 };
 
 function score(field, h) {
@@ -118,7 +174,55 @@ function score(field, h) {
 }
 
 const NUMERIC_TYPES = new Set(['esriFieldTypeDouble', 'esriFieldTypeSingle', 'esriFieldTypeInteger', 'esriFieldTypeSmallInteger', 'esriFieldTypeBigInteger']);
-const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value', 'total_value', 'land_acres', 'land_sqft']);
+const VALUE_ATTRS = new Set(['taxable_value', 'land_value', 'improvement_value', 'total_value', 'land_acres', 'land_sqft', 'sale_price']);
+
+/**
+ * Parses an assessor date: epoch milliseconds (ArcGIS), ISO strings, "MM/DD/YYYY",
+ * "YYYYMMDD", or a plain year. Returns an ISO date string (YYYY-MM-DD) or null.
+ */
+export function toISODate(v, { epochMs = false } = {}) {
+  if (v === null || v === undefined || v === '') return null;
+  const maxYear = new Date().getUTCFullYear() + 1;
+  const yearOk = (y) => y >= 1800 && y <= maxYear;
+  const ymd = (y, mo, d) => {
+    if (!yearOk(y) || mo < 1 || mo > 12 || d < 1 || d > 31) return null; // placeholders such as 00/00/0000, 1/1/1900 are "no sale"
+    if (y === 1900 && mo === 1 && d === 1) return null;
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+  const fromDate = (dt) => {
+    if (Number.isNaN(dt.getTime())) return null;
+    return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+  };
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return null;
+    // Esri date fields are always epoch milliseconds (negative before 1970).
+    if (epochMs) return fromDate(new Date(v));
+    if (Math.abs(v) >= 1e11) return fromDate(new Date(v)); // epoch ms
+    if (v >= 3e8) return fromDate(new Date(v * 1000)); // epoch s (1979 onwards)
+    if (v >= 18000101 && v <= 21001231) return ymd(Math.floor(v / 10000), Math.floor(v / 100) % 100, v % 100);
+    if (yearOk(v) && Number.isInteger(v)) return `${v}`;
+    return null;
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = s.match(/^(\d{4})-(\d{2})$/);
+  if (m) return yearOk(Number(m[1])) && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${m[1]}-${m[2]}` : null;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return ymd(Number(m[3]), Number(m[1]), Number(m[2]));
+  m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = s.match(/^([A-Za-z]{3,9})[-\s](\d{4})$/); // "Jun-2026", "Sept 2026"
+  if (m) {
+    const mi = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi >= 0 && yearOk(Number(m[2]))) return `${m[2]}-${String(mi + 1).padStart(2, '0')}`;
+    return null;
+  }
+  if (/^\d{4}$/.test(s)) return yearOk(Number(s)) ? s : null;
+  if (/^\d+(\.\d+)?$/.test(s)) return toISODate(Number(s), { epochMs }); // numeric string
+  return fromDate(new Date(s));
+}
 
 /**
  * @param {{fields: {name, alias, type}[]}} layerInfo
@@ -156,6 +260,8 @@ export function resolveFieldMap(layerInfo, candidates = {}) {
         if (used.has(f.name)) continue;
         if (f.type === 'esriFieldTypeOID' || f.type === 'esriFieldTypeGeometry' || /^shape([._]|$)/i.test(f.name)) continue;
         let s = score(f, HEURISTICS[attr]);
+        // exemption text (type / description / code): never a Y/N flag or a numeric field
+        if (s && attr === 'exemption' && (f.type !== 'esriFieldTypeString' || (f.length && f.length <= 2))) continue;
         if (s && VALUE_ATTRS.has(attr)) {
           if (NUMERIC_TYPES.has(f.type)) s += 10;
           else if (f.type === 'esriFieldTypeString') {

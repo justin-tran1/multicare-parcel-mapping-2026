@@ -32,8 +32,10 @@ export function titleCaseOwner(s) {
 
 export function csvCell(v) {
   if (v === null || v === undefined) return '';
-  const s = String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = String(v);
+  // Assessor strings are free text typed by filers: neutralise spreadsheet formula triggers.
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+  return /[",\n\r']/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function toCSV(rows, columns) {

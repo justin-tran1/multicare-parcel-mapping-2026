@@ -53,6 +53,9 @@ export const PARCEL_STYLE = {
 export const MIN_PARCEL_ZOOM = 15; // parcels in view are fetched at or above this zoom
 export const MAX_RING_RADIUS_M = 8047; // 5 miles: keeps result sets manageable
 
+// Published site; the standalone (file://) build loads the weekly assessor extracts from here.
+export const SITE_BASE = 'https://justin-tran1.github.io/multicare-parcel-mapping-2026/';
+
 export const BASEMAPS = [
   {
     id: 'carto-light',
