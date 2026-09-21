@@ -7,6 +7,7 @@ import { getLayerInfo, queryFeatures, request, fetchJson, ArcGISError } from './
 import { resolveFieldMap, toNumber, cleanText, toISODate } from './fields.js';
 import { PROVIDERS, STATEWIDE } from './providers.js';
 import { decodeDOR } from './dor_codes.js';
+import { SITE_BASE } from './config.js';
 import {
   geometryBBox, bboxIntersects, expandBBox, pointInGeometry, geometryAreaSqM, sqMToAcres, SQFT_PER_ACRE,
   polygonsOf, labelPoint,
@@ -163,7 +164,7 @@ async function applyLookup(source, attrsList, signal) {
 // site as a manifest plus JSON shards keyed by normalized parcel number.
 const staticCache = new Map(); // path -> Promise<object>
 
-async function defaultStaticLoader(path, { signal } = {}) {
+async function defaultStaticLoader(path, opts = {}) {
   let base = '';
   if (typeof document !== 'undefined' && document.baseURI) base = document.baseURI;
   else if (typeof location !== 'undefined' && location.href) base = location.href;
@@ -171,6 +172,18 @@ async function defaultStaticLoader(path, { signal } = {}) {
   if (/^https?:\/\//i.test(path)) url = path;
   else if (base && /^https?:/i.test(base)) url = new URL(path, base).href;
   else if (base && /^file:/i.test(base) && globalThis.__STATIC_DATA_BASE) url = new URL(path, globalThis.__STATIC_DATA_BASE).href;
+  try {
+    return await fetchStaticJson(url, opts);
+  } catch (err) {
+    // A copy of the app hosted elsewhere (intranet, SharePoint) has no extract of its own:
+    // fall back to the published site, which builds it weekly.
+    const published = new URL(path, SITE_BASE).href;
+    if (err?.code !== 'aborted' && !/^https?:\/\//i.test(path) && url !== published && !url.startsWith(SITE_BASE)) return fetchStaticJson(published, opts);
+    throw err;
+  }
+}
+
+async function fetchStaticJson(url, { signal } = {}) {
   // Own timeout: the shared cache promise is not bound to any caller's signal, so a stalled
   // request must fail on its own instead of hanging every study that joins it.
   const ctrl = new AbortController();

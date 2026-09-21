@@ -4,7 +4,7 @@ import zlib from 'node:zlib';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readZipEntries, parsePipe, buildRecords, findMultiCare, writeOutput, LAYOUTS, toISO } from '../../scripts/build-pierce-assessor.mjs';
+import { readZipEntries, parsePipe, buildRecords, findMultiCare, writeOutput, LAYOUTS, toISO, decodeCountyText } from '../../scripts/build-pierce-assessor.mjs';
 
 /** Minimal ZIP writer (deflate) mirroring the county's single-file archives. */
 function makeZip(name, content) {
@@ -53,6 +53,23 @@ test('zip reader inflates a county-style single file archive', () => {
   assert.equal(entries.length, 1);
   assert.equal(entries[0].name, 'sale.txt');
   assert.equal(entries[0].data().toString('latin1'), 'a|b|c\r\nd|e|f\r\n');
+});
+
+test('county text is Windows-1252 and a stray BOM is removed', () => {
+  const buf = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('0220163009|O', 'latin1'), Buffer.from([0x92]), Buffer.from('BRIEN\n', 'latin1')]);
+  assert.equal(decodeCountyText(buf), '0220163009|O’BRIEN\n');
+});
+
+test('sale rows for parcel numbers absent from the tax roll are skipped', () => {
+  const tax = parsePipe(taxRow('0220163009'), LAYOUTS.tax_account).rows;
+  const sales = parsePipe([
+    saleRow({ etn: '1', parcel_count: '1', parcel_number: '0220163009', sale_date: '01/02/2015', sale_price: '100', deed_type: 'SWD', grantor: 'A', grantee: 'B', valid_invalid: '1', confirmed_unconfirmed: '1', exclude_reason: '', improved_vacant: 'Improved', appraisal_account_type: 'Commercial' }),
+    saleRow({ etn: '2', parcel_count: '1', parcel_number: '9999999999', sale_date: '01/02/2016', sale_price: '100', deed_type: 'SWD', grantor: 'C', grantee: 'D', valid_invalid: '1', confirmed_unconfirmed: '1', exclude_reason: '', improved_vacant: 'Improved', appraisal_account_type: 'Commercial' }),
+  ].join('\n'), LAYOUTS.sale).rows;
+  const { records, stats } = buildRecords({ taxAccounts: tax, appraisalAccounts: [], sales });
+  assert.equal(records.size, 1);
+  assert.equal(stats.saleRowsSkipped, 1);
+  assert.equal(records.get('0220163009').legal_owner, 'B');
 });
 
 test('pipe parser assigns columns positionally and counts malformed rows', () => {

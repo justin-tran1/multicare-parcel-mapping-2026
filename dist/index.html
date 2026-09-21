@@ -3486,7 +3486,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     }));
   }
   var staticCache = /* @__PURE__ */ new Map();
-  async function defaultStaticLoader(path, { signal } = {}) {
+  async function defaultStaticLoader(path, opts = {}) {
     let base = "";
     if (typeof document !== "undefined" && document.baseURI) base = document.baseURI;
     else if (typeof location !== "undefined" && location.href) base = location.href;
@@ -3494,6 +3494,15 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (/^https?:\/\//i.test(path)) url = path;
     else if (base && /^https?:/i.test(base)) url = new URL(path, base).href;
     else if (base && /^file:/i.test(base) && globalThis.__STATIC_DATA_BASE) url = new URL(path, globalThis.__STATIC_DATA_BASE).href;
+    try {
+      return await fetchStaticJson(url, opts);
+    } catch (err) {
+      const published = new URL(path, SITE_BASE).href;
+      if (err?.code !== "aborted" && !/^https?:\/\//i.test(path) && url !== published && !url.startsWith(SITE_BASE)) return fetchStaticJson(published, opts);
+      throw err;
+    }
+  }
+  async function fetchStaticJson(url, { signal } = {}) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new ArcGISError("Request timed out", { url, code: "timeout" })), 3e4);
     const onAbort = () => ctrl.abort(signal.reason);

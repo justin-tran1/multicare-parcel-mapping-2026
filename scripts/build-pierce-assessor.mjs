@@ -3,7 +3,7 @@
 // grantee), last sale date / price, business name, exemption and current values.
 //
 // Source: Pierce County Assessor-Treasurer "Data Downloads" (updated weekly), pipe-delimited
-// text files without header rows, ISO-8859-1 encoded, zipped one file per table:
+// text files without header rows, Windows-1252 encoded, zipped one file per table:
 //   https://online.co.pierce.wa.us/datamart/tax_account.zip        (28 columns)
 //   https://online.co.pierce.wa.us/datamart/appraisal_account.zip  (24 columns)
 //   https://online.co.pierce.wa.us/datamart/sale.zip               (13 columns)
@@ -19,6 +19,9 @@
 //
 // Usage: node scripts/build-pierce-assessor.mjs [--out DIR] [--cache DIR] [--prefix-length N]
 //        [--from DIR]   use already-downloaded <table>.zip or <table>.txt files instead of fetching
+//
+// Rows are folded into the per-parcel record map as they are parsed, so only one table's
+// text is in memory at a time (the sale file alone is ~90 MB, 650k rows).
 
 import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -92,29 +95,52 @@ export function readZipEntries(buf) {
   return entries;
 }
 
-/** Splits a pipe-delimited, header-less, unquoted text file into field arrays. */
-export function parsePipe(text, layout, { onBadRow } = {}) {
-  const rows = [];
+function textEntry(entries, name) {
+  const e = entries.find((x) => /\.txt$/i.test(x.name)) || entries[0];
+  if (!e) throw new Error(`${name}.zip contains no entries`);
+  return e;
+}
+
+/** Decodes a county text file (Windows-1252; a UTF-8 BOM is stripped if ever present). */
+export function decodeCountyText(buf) {
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) buf = buf.subarray(3);
+  return new TextDecoder('windows-1252').decode(buf);
+}
+
+/**
+ * Splits a pipe-delimited, header-less, unquoted text file into field objects, calling
+ * `onRow` for each (or collecting them when no callback is given).
+ */
+export function parsePipe(text, layout, { onBadRow, onRow } = {}) {
+  const rows = onRow ? null : [];
   let bad = 0;
-  const lines = text.replace(/^﻿/, '').split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  let total = 0;
+  let start = 0;
+  const n = text.length;
+  while (start < n) {
+    let end = text.indexOf('\n', start);
+    if (end < 0) end = n;
+    let line = text.slice(start, end);
+    start = end + 1;
+    if (line.endsWith('\r')) line = line.slice(0, -1);
     if (!line) continue;
+    total += 1;
     const parts = line.split('|');
     if (parts.length !== layout.length) {
       // Tolerate a trailing delimiter, otherwise count the row as malformed.
       if (parts.length === layout.length + 1 && parts[parts.length - 1] === '') parts.pop();
       else {
         bad += 1;
-        if (onBadRow) onBadRow(i + 1, line, parts.length);
+        if (onBadRow) onBadRow(total, line, parts.length);
         continue;
       }
     }
     const rec = {};
     for (let j = 0; j < layout.length; j++) rec[layout[j]] = parts[j].trim();
-    rows.push(rec);
+    if (onRow) onRow(rec);
+    else rows.push(rec);
   }
-  return { rows, bad, total: rows.length + bad };
+  return { rows, bad, total };
 }
 
 export function toISO(mdy) {
@@ -134,24 +160,32 @@ const int = (v) => {
 };
 
 /**
- * Joins the three tables into one record per parcel number.
- * @returns {{ records: Map<string, object>, stats: object }}
+ * Folds the three tables into one record per parcel number. Feed tax_account and
+ * appraisal_account rows first; sale rows only attach to parcels those tables know
+ * (retired parcel numbers in the decades-long sales history are skipped).
  */
-export function buildRecords({ taxAccounts, appraisalAccounts, sales }) {
-  const records = new Map();
-  const get = (pn) => {
-    let r = records.get(pn);
+export class RecordBuilder {
+  constructor() {
+    this.records = new Map();
+    this.latest = new Map();
+    this.latestValid = new Map();
+    this.stats = { taxAccounts: 0, appraisalAccounts: 0, saleRows: 0, saleRowsSkipped: 0, parcelsWithSales: 0 };
+  }
+
+  get(pn) {
+    let r = this.records.get(pn);
     if (!r) {
       r = {};
-      records.set(pn, r);
+      this.records.set(pn, r);
     }
     return r;
-  };
-  for (const t of taxAccounts) {
+  }
+
+  addTax(t) {
     const pn = t.parcel_number;
-    if (!pn) continue;
-    const r = get(pn);
-    Object.assign(r, {
+    if (!pn) return;
+    this.stats.taxAccounts += 1;
+    Object.assign(this.get(pn), {
       account_type: t.account_type || undefined,
       situs_address: t.site_address || undefined,
       use_code: t.use_code || undefined,
@@ -164,13 +198,14 @@ export function buildRecords({ taxAccounts, appraisalAccounts, sales }) {
       taxable_value: int(t.taxable_value) ?? undefined,
     });
   }
-  for (const a of appraisalAccounts) {
+
+  addAppraisal(a) {
     const pn = a.parcel_number;
-    if (!pn) continue;
-    const r = get(pn);
+    if (!pn) return;
+    this.stats.appraisalAccounts += 1;
     const netAcres = num(a.land_net_acres);
     const grossAcres = num(a.land_gross_acres);
-    Object.assign(r, {
+    Object.assign(this.get(pn), {
       appraisal_type: a.appraisal_account_type || undefined,
       business_name: a.business_name || undefined,
       land_acres: netAcres && netAcres > 0 ? netAcres : undefined,
@@ -179,43 +214,65 @@ export function buildRecords({ taxAccounts, appraisalAccounts, sales }) {
       appraisal_date: toISO(a.appraisal_date) ?? undefined,
     });
   }
-  // Most recent recorded deed per parcel (ties: highest ETN), plus the latest sale the
-  // assessor treats as a valid (arm's-length) market sale with a price.
-  const latest = new Map();
-  const latestValid = new Map();
-  let saleRows = 0;
-  for (const s of sales) {
+
+  addSale(s) {
     const pn = s.parcel_number;
     const iso = toISO(s.sale_date);
-    if (!pn || !iso) continue;
-    saleRows += 1;
+    if (!pn || !iso) return;
+    if (!this.records.has(pn)) {
+      this.stats.saleRowsSkipped += 1;
+      return;
+    }
+    this.stats.saleRows += 1;
+    // Most recent recorded deed per parcel (ties: highest ETN), plus the latest sale the
+    // assessor treats as a valid (arm's-length) market sale with a price.
     const key = `${iso}|${String(s.etn).padStart(12, '0')}`;
-    const cur = latest.get(pn);
-    if (!cur || key > cur.key) latest.set(pn, { key, s, iso });
+    const cur = this.latest.get(pn);
+    if (!cur || key > cur.key) {
+      this.latest.set(pn, {
+        key, iso, etn: s.etn, price: num(s.sale_price), grantor: s.grantor, grantee: s.grantee, deed: s.deed_type,
+        valid: s.valid_invalid === '1', reason: s.exclude_reason, count: int(s.parcel_count),
+      });
+    }
     if (s.valid_invalid === '1' && num(s.sale_price) > 0) {
-      const cv = latestValid.get(pn);
-      if (!cv || key > cv.key) latestValid.set(pn, { key, s, iso });
+      const cv = this.latestValid.get(pn);
+      if (!cv || key > cv.key) this.latestValid.set(pn, { key, iso, price: num(s.sale_price) });
     }
   }
-  for (const [pn, { s, iso }] of latest) {
-    const r = get(pn);
-    r.sale_date = iso;
-    r.sale_price = num(s.sale_price) ?? undefined;
-    r.sale_grantor = s.grantor || undefined;
-    r.legal_owner = s.grantee || undefined;
-    r.sale_deed_type = s.deed_type || undefined;
-    r.sale_valid = s.valid_invalid === '1' ? 1 : 0;
-    r.sale_exclude_reason = s.exclude_reason || undefined;
-    r.sale_etn = s.etn || undefined;
-    if (int(s.parcel_count) > 1) r.sale_parcel_count = int(s.parcel_count);
-    const v = latestValid.get(pn);
-    if (v && v.iso !== iso) {
-      r.valid_sale_date = v.iso;
-      r.valid_sale_price = num(v.s.sale_price) ?? undefined;
+
+  finish() {
+    for (const [pn, d] of this.latest) {
+      const r = this.get(pn);
+      r.sale_date = d.iso;
+      r.sale_price = d.price ?? undefined;
+      r.sale_grantor = d.grantor || undefined;
+      r.legal_owner = d.grantee || undefined;
+      r.sale_deed_type = d.deed || undefined;
+      r.sale_valid = d.valid ? 1 : 0;
+      r.sale_exclude_reason = d.reason || undefined;
+      r.sale_etn = d.etn || undefined;
+      if (d.count > 1) r.sale_parcel_count = d.count;
+      const v = this.latestValid.get(pn);
+      if (v && v.iso !== d.iso) {
+        r.valid_sale_date = v.iso;
+        r.valid_sale_price = v.price ?? undefined;
+      }
     }
+    this.stats.parcelsWithSales = this.latest.size;
+    for (const r of this.records.values()) for (const k of Object.keys(r)) if (r[k] === undefined) delete r[k];
+    this.latest.clear();
+    this.latestValid.clear();
+    return { records: this.records, stats: this.stats };
   }
-  for (const r of records.values()) for (const k of Object.keys(r)) if (r[k] === undefined) delete r[k];
-  return { records, stats: { taxAccounts: taxAccounts.length, appraisalAccounts: appraisalAccounts.length, saleRows, parcelsWithSales: latest.size } };
+}
+
+/** Convenience wrapper over RecordBuilder for already-parsed arrays (tests, small runs). */
+export function buildRecords({ taxAccounts, appraisalAccounts, sales }) {
+  const b = new RecordBuilder();
+  for (const t of taxAccounts) b.addTax(t);
+  for (const a of appraisalAccounts) b.addAppraisal(a);
+  for (const s of sales) b.addSale(s);
+  return b.finish();
 }
 
 /** Parcels whose grantee, grantor or business name matches a MultiCare pattern. */
@@ -268,24 +325,42 @@ export const FIELD_LABELS = {
   account_type: 'tax_account.txt Account Type',
 };
 
+const RETRYABLE = (status) => status === 429 || status >= 500;
+
 async function fetchWithRetry(url, attempts = 3) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'multicare-parcel-mapping (GitHub Actions; assessor extract build)' }, redirect: 'follow' });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'multicare-parcel-mapping (GitHub Actions; assessor extract build)' },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(180000),
+      });
+      if (!res.ok) {
+        const err = new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+        err.retryable = RETRYABLE(res.status);
+        throw err;
+      }
       const buf = Buffer.from(await res.arrayBuffer());
       return { buf, lastModified: res.headers.get('last-modified') || '' };
     } catch (err) {
       lastErr = err;
-      console.warn(`  attempt ${i + 1} failed: ${err.message}`);
+      const retryable = err.retryable !== false && (err.retryable === true || !/^HTTP \d/.test(err.message));
+      console.warn(`  attempt ${i + 1} failed: ${err.message}${retryable && i < attempts - 1 ? ', retrying' : ''}`);
+      if (!retryable) break;
       await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
     }
   }
   throw lastErr;
 }
 
-async function loadTable(name, { from, cache }) {
+function isoOrEmpty(dateText) {
+  const ms = Date.parse(dateText || '');
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : '';
+}
+
+/** Loads one table and streams its rows into `onRow`; returns file metadata. */
+async function loadTable(name, { from, cache, onRow }) {
   const layout = LAYOUTS[name];
   let text;
   let dated = '';
@@ -294,13 +369,11 @@ async function loadTable(name, { from, cache }) {
     const txt = path.join(from, `${name}.txt`);
     const zip = path.join(from, `${name}.zip`);
     if (existsSync(txt)) {
-      text = (await readFile(txt)).toString('latin1');
+      text = decodeCountyText(await readFile(txt));
       source = txt;
       dated = (await stat(txt)).mtime.toISOString();
     } else if (existsSync(zip)) {
-      const entries = readZipEntries(await readFile(zip));
-      const e = entries.find((x) => /\.txt$/i.test(x.name)) || entries[0];
-      text = e.data().toString('latin1');
+      text = decodeCountyText(textEntry(readZipEntries(await readFile(zip)), name).data());
       source = zip;
       dated = (await stat(zip)).mtime.toISOString();
     } else throw new Error(`Neither ${txt} nor ${zip} exists`);
@@ -313,21 +386,23 @@ async function loadTable(name, { from, cache }) {
       await mkdir(cache, { recursive: true });
       await writeFile(path.join(cache, `${name}.zip`), buf);
     }
-    const entries = readZipEntries(buf);
-    const e = entries.find((x) => /\.txt$/i.test(x.name)) || entries[0];
-    if (!e) throw new Error(`${name}.zip contains no entries`);
-    text = e.data().toString('latin1');
+    text = decodeCountyText(textEntry(readZipEntries(buf), name).data());
     source = url;
-    dated = lastModified ? new Date(lastModified).toISOString() : '';
+    dated = isoOrEmpty(lastModified);
+    if (lastModified && !dated) console.warn(`  Last-Modified header not parseable: ${lastModified}`);
   }
   const preview = text.split(/\r?\n/, 3).map((l) => l.slice(0, 160));
   console.log(`  ${name}: first lines:\n    ${preview.join('\n    ')}`);
   const badSamples = [];
-  const { rows, bad, total } = parsePipe(text, layout, { onBadRow: (n, line, count) => { if (badSamples.length < 3) badSamples.push(`line ${n}: ${count} fields: ${line.slice(0, 120)}`); } });
-  console.log(`  ${name}: ${rows.length.toLocaleString()} rows parsed, ${bad.toLocaleString()} malformed`);
+  const { bad, total } = parsePipe(text, layout, {
+    onRow,
+    onBadRow: (n, line, count) => { if (badSamples.length < 3) badSamples.push(`line ${n}: ${count} fields: ${line.slice(0, 120)}`); },
+  });
+  text = null; // release the decoded file before the next table
+  console.log(`  ${name}: ${(total - bad).toLocaleString()} rows parsed, ${bad.toLocaleString()} malformed`);
   if (bad) console.log(`    e.g. ${badSamples.join(' | ')}`);
   if (total && bad / total > 0.01) throw new Error(`${name}: ${bad} of ${total} rows do not have ${layout.length} fields; the county layout may have changed (see ${METADATA_URL}${name}.pdf)`);
-  return { rows, source, dated, bad };
+  return { source, dated, rows: total - bad, malformed: bad, columns: layout.length };
 }
 
 export async function writeOutput({ records, stats, outDir, prefixLength, files, multicare }) {
@@ -382,23 +457,22 @@ export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const t0 = Date.now();
   const files = {};
-  const tables = {};
+  const builder = new RecordBuilder();
+  const handlers = { tax_account: (r) => builder.addTax(r), appraisal_account: (r) => builder.addAppraisal(r), sale: (r) => builder.addSale(r) };
   for (const name of ['tax_account', 'appraisal_account', 'sale']) {
-    const { rows, source, dated, bad } = await loadTable(name, { from: args.from, cache: args.cache });
-    tables[name] = rows;
-    files[name] = { source, dated, rows: rows.length, malformed: bad, columns: LAYOUTS[name].length };
+    files[name] = await loadTable(name, { from: args.from, cache: args.cache, onRow: handlers[name] });
   }
-  const { records, stats } = buildRecords({ taxAccounts: tables.tax_account, appraisalAccounts: tables.appraisal_account, sales: tables.sale });
+  const { records, stats } = builder.finish();
   const multicare = findMultiCare(records);
   const { manifest, bytes, shardCount } = await writeOutput({ records, stats, outDir: args.out, prefixLength: args.prefixLength, files, multicare });
   console.log(`\nWrote ${records.size.toLocaleString()} parcel records in ${shardCount} shards (${(bytes / 1048576).toFixed(1)} MB) to ${args.out} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-  console.log(`Sales: ${stats.saleRows.toLocaleString()} rows, ${stats.parcelsWithSales.toLocaleString()} parcels with a recorded deed`);
+  console.log(`Sales: ${stats.saleRows.toLocaleString()} rows for current parcels (${stats.saleRowsSkipped.toLocaleString()} rows for retired parcel numbers skipped), ${stats.parcelsWithSales.toLocaleString()} parcels with a recorded deed`);
   console.log(`MultiCare-matching parcels (grantee / business name / grantor): ${multicare.length}`);
   for (const m of multicare.slice(0, 200)) {
     console.log(`  ${m.parcel}  ${m.matches.map((x) => `${x.field}=${x.value}`).join('; ')}  ${m.situs_address || ''}  ${m.use_description || ''}  ${m.exemption ? `[${m.exemption}]` : ''}`);
   }
   if (multicare.length > 200) console.log(`  … ${multicare.length - 200} more (see multicare.json)`);
-  console.log(`Extract dated ${manifest.asOf || 'unknown'}`);
+  console.log(`Extract dated ${manifest.asOf || 'unknown'}; peak heap ${(process.memoryUsage().heapUsed / 1048576).toFixed(0)} MB`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

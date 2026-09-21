@@ -14,6 +14,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ParcelService } from '../js/parcels.js';
 import { classifyOwner } from '../js/multicare.js';
 import { normalizeName } from '../js/multicare.js';
@@ -65,7 +66,7 @@ export function ownersMatch(a, b) {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const root = path.resolve(new URL('..', import.meta.url).pathname);
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const reference = JSON.parse(await readFile(path.join(root, 'data/reference_allenmore.json'), 'utf8'));
   const counties = JSON.parse(await readFile(path.join(root, 'data/wa_counties.json'), 'utf8'));
 
@@ -78,7 +79,16 @@ export async function main(argv = process.argv.slice(2)) {
   const staticLoader = async (p) => {
     if (args.staticBase) {
       const file = path.resolve(args.staticBase, p);
-      return JSON.parse(await readFile(file, 'utf8'));
+      try {
+        return JSON.parse(await readFile(file, 'utf8'));
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          const e = new Error(`Not found: ${file}`);
+          e.code = 404;
+          throw e;
+        }
+        throw err;
+      }
     }
     const res = await fetch(new URL(p, SITE_BASE));
     if (!res.ok) { const e = new Error(`HTTP ${res.status} for ${p}`); e.code = res.status; throw e; }
@@ -177,7 +187,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const timer = setTimeout(() => { console.error('Timed out after 10 minutes'); process.exit(1); }, 10 * 60 * 1000);
   main().then(() => clearTimeout(timer)).catch((err) => {
     console.error(err);
