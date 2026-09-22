@@ -245,7 +245,8 @@ table.parcels td.zoning { white-space: nowrap; font-variant-numeric: tabular-num
   .topbar { gap: 10px; padding: 0 10px; }
 }
 @media (max-width: 420px) {
-  .topbar-title { display: none; }
+  /* Hidden from view but kept in the accessibility tree: it is the page's only h1. */
+  .topbar-title { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 
 /* ---------- Print exhibit mode ---------- */
@@ -261,16 +262,18 @@ body.print-mode .main {
 }
 body.print-mode .exhibit-header {
   grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 18px;
-  background: var(--cbre-green); color: #fff; padding: 10px 20px; min-height: 0.85in;
+  background: var(--cbre-green); color: #fff; padding: 10px 20px; min-height: 0.85in; max-height: 1.6in; overflow: hidden;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 body.print-mode .exhibit-logos { display: flex; align-items: center; gap: 16px; flex: none; padding-right: 18px; border-right: 1px solid rgba(255, 255, 255, 0.45); }
 body.print-mode .exhibit-logos .logo { height: 0.36in; }
 body.print-mode .exhibit-logos .brand-divider { height: 0.36in; }
-/* The title wraps rather than being clipped: no part of a title the user typed is dropped
-   from the printed exhibit, and the header grows within its 0.85in minimum. */
-body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow-wrap: anywhere; }
-body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+/* Title and subtitle both wrap rather than being clipped, so no part of what the user typed
+   is dropped from the exhibit. Neither may starve the other: the title keeps a readable
+   floor and the subtitle a ceiling, and printExhibit() shrinks the type until both fit the
+   header band, which is capped so a pathological entry can never push the map off the page. */
+body.print-mode .exhibit-title { flex: 1 1 auto; min-width: 4.5in; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow-wrap: break-word; }
+body.print-mode .exhibit-subtitle { flex: 0 1 auto; min-width: 0; max-width: 3.4in; text-align: right; font-size: 16px; font-weight: 600; text-transform: uppercase; overflow-wrap: break-word; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
 body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
 body.print-mode .table-wrap { display: none !important; }

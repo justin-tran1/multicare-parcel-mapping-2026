@@ -193,14 +193,57 @@ test.describe('radius study', () => {
     const moved = await page.evaluate(() => window.__parcelApp.state.pin);
     expect(Math.abs(moved.lat - pin.lat) + Math.abs(moved.lon - pin.lon)).toBeGreaterThan(1e-4);
     await expect(page.locator('.pin-icon')).toHaveCount(1);
-    // text dragged from elsewhere is not offered the map as a drop target
+    // the pin travels under its own private type, which is what the map accepts
+    const types = await page.evaluate(() => {
+      const dt = new DataTransfer();
+      const handle = document.getElementById('pin-handle');
+      handle.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      handle.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return Array.from(dt.types);
+    });
+    expect(types).toContain('application/x-parcel-radius-pin');
+    // a drag carrying that type is offered the map even when it did not start here
     await page.evaluate(() => {
       const dt = new DataTransfer();
-      dt.setData('text/plain', 'just some text');
+      dt.setData('application/x-parcel-radius-pin', 'parcel-radius-pin');
+      window.__parcelApp.state.map.getContainer().dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator('#map')).toHaveClass(/drop-target/);
+    // text dragged from elsewhere is not
+    await page.evaluate(() => {
       const map = window.__parcelApp.state.map.getContainer();
+      map.classList.remove('drop-target');
+      const dt = new DataTransfer();
+      dt.setData('text/plain', 'just some text');
       map.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
     });
     await expect(page.locator('#map')).not.toHaveClass(/drop-target/);
+    // the highlight follows the pointer: it survives a move between the map's own panes and a
+    // null relatedTarget, and clears over the sidebar that overlays the map and on leaving
+    await page.setViewportSize({ width: 800, height: 800 });
+    const states = await page.evaluate(() => {
+      const map = window.__parcelApp.state.map.getContainer();
+      const side = document.getElementById('sidebar');
+      if (document.getElementById('layout').classList.contains('sidebar-collapsed')) document.getElementById('btn-sidebar').click();
+      const dt = new DataTransfer();
+      dt.setData('application/x-parcel-radius-pin', 'parcel-radius-pin');
+      const fire = (type, opts) => map.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true, ...opts }));
+      const out = {};
+      fire('dragenter', { clientX: 600, clientY: 400 });
+      out.entered = map.classList.contains('drop-target');
+      fire('dragleave', { clientX: 620, clientY: 400, relatedTarget: document.querySelector('.leaflet-map-pane') });
+      out.crossPane = map.classList.contains('drop-target');
+      fire('dragleave', { clientX: 620, clientY: 400 }); // engines that leave relatedTarget null
+      out.nullRelated = map.classList.contains('drop-target');
+      fire('dragleave', { clientX: 150, clientY: 400, relatedTarget: side });
+      out.overSidebar = map.classList.contains('drop-target');
+      fire('dragenter', { clientX: 600, clientY: 400 });
+      fire('dragleave', { clientX: 0, clientY: 0 });
+      out.leftWindow = map.classList.contains('drop-target');
+      return out;
+    });
+    expect(states).toEqual({ entered: true, crossPane: true, nullRelated: true, overSidebar: false, leftWindow: false });
+    await page.setViewportSize({ width: 1400, height: 900 });
   });
 
   test('the header and the exhibit carry the CBRE logo with the MultiCare mark; the print button reads Print Exhibit', async ({ page }) => {
@@ -232,13 +275,33 @@ test.describe('radius study', () => {
     await expect(page.locator('#exhibit-disclaimer')).toContainText('Generated');
     expect(await loaded('.exhibit-header img, #exhibit-footer img')).toEqual([true, true, true, true]);
     await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
-    // a long title wraps in the exhibit header instead of being cut off
+    // a long title and a long subtitle both fit the header; neither is cut off and the map stays
     await page.fill('#title', 'MultiCare Tacoma General Hospital and Mary Bridge Children’s Hospital Campus Redevelopment Study | Tacoma, Washington');
     await page.dispatchEvent('#title', 'input');
+    await page.fill('#subtitle', 'All properties within 250 yards of the MultiCare Allenmore Hospital campus boundary, Tacoma, Washington, as recorded by the assessor');
+    await page.dispatchEvent('#subtitle', 'input');
     await page.click('#btn-print');
     await page.waitForFunction(() => document.body.classList.contains('print-mode'));
-    const clipped = await page.locator('#exhibit-title').evaluate((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1);
-    expect(clipped, 'exhibit title is clipped').toBe(false);
+    const layout = await page.evaluate(() => {
+      const fits = (el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1;
+      const header = document.querySelector('.exhibit-header');
+      const title = document.getElementById('exhibit-title');
+      const sub = document.getElementById('exhibit-subtitle');
+      return {
+        titleFits: fits(title), subFits: fits(sub), headerFits: fits(header),
+        headerHeight: header.getBoundingClientRect().height,
+        titleWidth: title.getBoundingClientRect().width,
+        mapHeight: document.querySelector('.map-wrap').getBoundingClientRect().height,
+        rows: document.querySelectorAll('.print-table table.parcels tbody tr').length,
+      };
+    });
+    expect(layout.titleFits, 'exhibit title is clipped').toBe(true);
+    expect(layout.subFits, 'exhibit subtitle is clipped').toBe(true);
+    expect(layout.headerFits, 'exhibit header overflows').toBe(true);
+    expect(layout.headerHeight).toBeLessThan(1.6 * 96 + 2); // capped so it cannot push the map off the sheet
+    expect(layout.titleWidth).toBeGreaterThan(300);
+    expect(layout.mapHeight).toBeGreaterThan(200);
+    expect(layout.rows).toBeGreaterThan(0);
     await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
   });
 
@@ -256,6 +319,9 @@ test.describe('radius study', () => {
     await expect(page.locator('.topbar .brand img.logo-cbre')).toBeVisible();
     await expect(page.locator('.topbar .brand img.logo-multicare')).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // the page keeps its heading for assistive technology even where the bar has no room for it
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Washington Parcel Radius Map');
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.topbar-title')).display)).not.toBe('none');
     // both marks are back on a wide bar
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.locator('.topbar .brand img.logo-multicare')).toBeVisible();

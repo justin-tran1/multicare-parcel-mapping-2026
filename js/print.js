@@ -28,6 +28,31 @@ function waitForTiles(map, timeoutMs = 4000) {
 const ROWS_PER_COLUMN = 52;
 
 /**
+ * Shrinks the header type until the title and subtitle fit the header band. Both wrap, so
+ * this only comes into play for unusually long entries; nothing the user typed is dropped
+ * unless it cannot be made to fit at the smallest size.
+ */
+function fitHeaderText() {
+  const header = document.querySelector('.exhibit-header');
+  const title = document.getElementById('exhibit-title');
+  const subtitle = document.getElementById('exhibit-subtitle');
+  if (!header) return;
+  const overflows = () => header.scrollHeight > header.clientHeight + 1;
+  // the subtitle is the secondary line, so it gives way first
+  for (const [el, from, to] of [[subtitle, 16, 9], [title, 28, 12]]) {
+    if (!el) continue;
+    for (let size = from; size >= to && overflows(); size -= 1) el.style.fontSize = `${size}px`;
+  }
+}
+
+function clearHeaderText() {
+  for (const id of ['exhibit-title', 'exhibit-subtitle']) {
+    const el = document.getElementById(id);
+    if (el) el.style.fontSize = '';
+  }
+}
+
+/**
  * Clones the results table into one or more compact side-by-side column blocks so that
  * long parcel lists fit the exhibit page (the reference exhibit lists ~60 parcels in one
  * narrow column). Only the core exhibit columns are kept: ID, owner, value, acres, use,
@@ -107,6 +132,7 @@ export async function printExhibit({ map, title, subtitle, bounds, footerLeft = 
 
   const restore = () => {
     body.classList.remove('print-mode');
+    clearHeaderText();
     printTable?.remove();
     if (wasCollapsed) results.classList.add('collapsed');
     map.invalidateSize({ animate: false });
@@ -116,6 +142,8 @@ export async function printExhibit({ map, title, subtitle, bounds, footerLeft = 
   window.addEventListener('afterprint', restore);
 
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  clearHeaderText();
+  fitHeaderText();
   map.invalidateSize({ animate: false });
   if (bounds) map.fitBounds(bounds, { padding: [30, 30], animate: false });
   await waitForTiles(map);

@@ -1028,12 +1028,14 @@ function wirePinDrag() {
     e.dataTransfer.dropEffect = 'move';
   });
   container.addEventListener('dragleave', (e) => {
-    // Some engines leave relatedTarget null on drag events, so fall back to the pointer position:
-    // crossing between the map's own panes must not drop the highlight.
+    // Crossing between the map's own panes must not drop the highlight. Some engines leave
+    // relatedTarget null on drag events, so fall back to what is under the pointer, which also
+    // clears the highlight when the drag moves onto the sidebar overlaying the map.
     if (container.contains(e.relatedTarget)) return;
     const r = container.getBoundingClientRect();
     const inside = e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom;
-    if (!inside) container.classList.remove('drop-target');
+    const under = inside ? document.elementFromPoint(e.clientX, e.clientY) : null;
+    if (!under || !container.contains(under)) container.classList.remove('drop-target');
   });
   container.addEventListener('drop', (e) => {
     const isPin = dragging || e.dataTransfer?.getData(PIN_MIME) === TOKEN || e.dataTransfer?.getData('text/plain') === TOKEN;
