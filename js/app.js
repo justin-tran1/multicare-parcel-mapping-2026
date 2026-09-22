@@ -204,12 +204,7 @@ function initMap() {
   state.locationLayer = L.layerGroup().addTo(map);
 
   map.on('moveend zoomend', scheduleViewFetch);
-  map.on('click', (e) => {
-    if (state.dropMode) {
-      setDropMode(false);
-      setPin({ lat: e.latlng.lat, lon: e.latlng.lng, label: '' }, { reverse: true });
-    }
-  });
+  map.on('click', (e) => dropPinIfArmed(e));
   state.map = map;
 }
 
@@ -226,9 +221,24 @@ function recordByKey(key) {
   return state.study.records.find((r) => r.key === key) || state.view.records.get(key);
 }
 
+/**
+ * In "drop pin" mode any click on the map places the pin, including clicks that land on a
+ * parcel polygon, a parcel number label or a campus marker (those layers otherwise swallow
+ * the click). Returns true when the click was consumed as a pin drop.
+ */
+function dropPinIfArmed(e) {
+  if (!state.dropMode) return false;
+  if (e.originalEvent) L.DomEvent.stop(e.originalEvent);
+  setDropMode(false);
+  state.map.closePopup();
+  setPin({ lat: e.latlng.lat, lon: e.latlng.lng, label: '' }, { reverse: true });
+  return true;
+}
+
 function bindParcelLayer(layer, key, inStudy) {
   layer.on('click', (e) => {
     L.DomEvent.stop(e);
+    if (dropPinIfArmed(e)) return;
     openPopup(key, e.latlng);
   });
   layer.on('mouseover', () => highlightParcel(key, true));
@@ -601,7 +611,7 @@ function renderLabels() {
     if (!rec.labelLngLat) continue;
     const icon = L.divIcon({ className: 'pnum-wrap', html: `<div class="${labelClass(rec)}">${rec.id}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
     const m = L.marker([rec.labelLngLat[1], rec.labelLngLat[0]], { icon, parcelKey: rec.key, keyboard: false, zIndexOffset: 500, title: `#${rec.id} ${rec.owner || ''}` });
-    m.on('click', (e) => openPopup(rec.key, e.latlng));
+    m.on('click', (e) => { if (!dropPinIfArmed(e)) openPopup(rec.key, e.latlng); });
     m.on('mouseover', () => highlightParcel(rec.key, true));
     m.on('mouseout', () => highlightParcel(rec.key, false));
     group.addLayer(m);

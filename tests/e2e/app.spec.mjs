@@ -133,6 +133,32 @@ test.describe('radius study', () => {
     await expect(path).toHaveAttribute('stroke-dasharray', '24 16');
   });
 
+  test('drop-pin mode places the pin even when the click lands on a parcel or its number label', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto('/');
+    await page.evaluate(({ lat, lon }) => window.__parcelApp.state.map.setView([lat, lon], 17), ALLENMORE);
+    await page.waitForFunction(() => window.__parcelApp.state.view.records.size > 0, null, { timeout: 20000 });
+    await page.click('#btn-drop');
+    await expect(page.locator('#btn-drop')).toHaveAttribute('aria-pressed', 'true');
+    // the map centre is covered by a parcel polygon
+    const box = await page.locator('#map').boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.locator('.pin-icon')).toHaveCount(1, { timeout: 10000 });
+    await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+    await expect(page.locator('#btn-drop')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('table.parcels tbody tr').first()).toContainText('MULTICARE HEALTH SYSTEMS', { timeout: 20000 });
+    // re-arm and click on a numbered parcel label: the pin moves, no popup opens
+    await page.click('#btn-drop');
+    const label = page.locator('.pnum').nth(5);
+    await label.click();
+    await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+    const pin = await page.evaluate(() => ({ lat: window.__parcelApp.state.pin.lat, lon: window.__parcelApp.state.pin.lon }));
+    expect(Math.abs(pin.lat - ALLENMORE.lat) + Math.abs(pin.lon - ALLENMORE.lon)).toBeGreaterThan(1e-5);
+    // out of drop mode, clicking a parcel opens its popup as before
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.locator('.leaflet-popup .popup')).toBeVisible();
+  });
+
   test('coordinates entered as an address place the pin; clear removes everything', async ({ page }) => {
     await installMockArcGIS(page, { parcels });
     await page.goto('/');
