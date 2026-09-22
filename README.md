@@ -69,8 +69,12 @@ self-contained file that can be emailed.
   square feet, otherwise it is computed from the parcel polygon and flagged with `†`.
 - **Owner names** come from the county or city assessor join (taxpayer of record). Where a
   source withholds taxpayer names, the legal owner from the latest recorded deed is shown
-  instead and marked `§`; only when neither is available does a row read *not published*,
-  and the assessor link opens the county record.
+  instead and marked `§`; only when neither is available does a row read *Not Published*,
+  and the assessor link opens the county record. Any other field the source does not carry
+  for a parcel reads *N/A*.
+- **Site addresses** are published by assessors in capitals and are shown cased like a
+  mailing label ("1901 S Union Ave"); house numbers, unit numbers, directionals and the state
+  code are kept as published. **Distances** spell out the unit ("184 yards", "0.25 miles").
 - **Legal owner (deed)** is the title owner where the assessor publishes one (Whatcom) or
   the grantee / buyer on the most recent recorded sale (Pierce weekly extract, King County
   sales layer). Assessor rolls can lag deeds; the popup shows the deed type and date.

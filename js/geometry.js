@@ -19,6 +19,7 @@ export const UNIT_TO_METERS = {
 };
 
 export const UNIT_LABELS = { yd: 'yards', ft: 'feet', m: 'meters', km: 'kilometers', mi: 'miles' };
+export const UNIT_LABELS_SINGULAR = { yd: 'yard', ft: 'foot', m: 'meter', km: 'kilometer', mi: 'mile' };
 
 export const SQM_PER_ACRE = 4046.8564224;
 export const SQFT_PER_ACRE = 43560;
@@ -325,9 +326,17 @@ export function labelPoint(polysXY) {
   return c;
 }
 
-/** Formats a distance in metres for display in the requested unit. */
+/**
+ * Distance in metres formatted for display in the requested unit, spelled out: "184 yards", "0.25 miles", "1 yard".
+ * Miles and kilometres get two decimals, three below a tenth so that a parcel a few yards
+ * away does not read "0 miles"; a distance that still rounds to zero reads "less than …".
+ */
 export function formatDistance(meters, unit) {
   const v = fromMeters(meters, unit);
-  const digits = unit === 'mi' || unit === 'km' ? 2 : 0;
-  return `${v.toLocaleString(undefined, { maximumFractionDigits: digits })} ${unit}`;
+  const digits = unit === 'mi' || unit === 'km' ? (v < 0.1 ? 3 : 2) : 0;
+  const fmt = (n) => n.toLocaleString('en-US', { maximumFractionDigits: digits });
+  let text = fmt(v);
+  if (v > 0 && Number(text.replace(/,/g, '')) === 0) text = `less than ${fmt(10 ** -digits)}`;
+  const one = text === '1' || text === 'less than 1';
+  return `${text} ${one ? UNIT_LABELS_SINGULAR[unit] : UNIT_LABELS[unit]}`;
 }
