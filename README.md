@@ -1,4 +1,4 @@
-# Washington Parcel Radius Map
+# Washington Parcel Information Map
 
 Interactive web map for radius studies of tax parcels in Washington State, built in the
 style of CBRE's *Properties within 250 yards* exhibits. Drop a pin or type an address, and
@@ -52,11 +52,12 @@ self-contained file that can be emailed.
   the numbered table (split into columns for long lists), disclaimer, and the logos again in
   the footer. Use the browser's *Save as PDF*.
 - **Logos**: the header and the exhibit carry the official CBRE wordmark
-  (`assets/cbre-logo-white.png` on green, `assets/cbre-logo-green.png` on white) with the
-  MultiCare mark beside it. `assets/multicare-logo-white.svg` (green bars) and
-  `assets/multicare-logo.svg` (white footer) are placeholder wordmarks: replace them with the
-  official MultiCare artwork under the same file names and rebuild (`npm run build:single`
-  inlines every file in `assets/` into the standalone page).
+  (`assets/cbre-logo-white.png` on green, `assets/cbre-logo-green.png` on white) beside the
+  official MultiCare mark (`assets/multicare-logo-white.png` reversed for the green bars,
+  `assets/multicare-logo.png` in MultiCare blue for the white footer). `npm run build:single`
+  inlines every file in `assets/` into the standalone page. To update a mark, drop the new
+  artwork in as the colour file and run `node scripts/reverse-logo.mjs assets/<file>.png`,
+  which trims it and regenerates the reversed variant, then rebuild.
 - **Placing the pin**: search an address, use *Drop pin on map* and click, or drag the pin
   icon beside that button onto the map (it can be dropped on parcels too). The placed pin
   is draggable.
@@ -226,7 +227,7 @@ data/assessor/pierce` (about 120 MB of downloads; the county blocks some network
 
 ```
 index.html            app shell
-assets/               CBRE wordmark PNGs and the MultiCare marks (inlined by build:single)
+assets/               CBRE and MultiCare logo PNGs (inlined by build:single)
 css/app.css           styles, CBRE palette, print exhibit layout
 js/app.js             controller: map, pin, ring, study, table, print, sharing
 js/parcels.js         provider routing, live queries, enrichment joins, record normalisation
@@ -242,7 +243,7 @@ js/dor_codes.js       WA DOR land-use codes
 data/                 county outlines, MultiCare campuses, reference exhibit owners
 vendor/leaflet        Leaflet 1.9.4 (BSD-2-Clause)
 scripts/              vendor, county build, single-file build, dev server, live probe,
-                      Pierce assessor extract build, Allenmore validation
+                      Pierce assessor extract build, Allenmore validation, logo variants
 tests/                node:test unit tests and Playwright e2e tests with mocked services
 ```
 

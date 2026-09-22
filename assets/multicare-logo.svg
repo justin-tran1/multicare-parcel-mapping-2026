@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Placeholder wordmark for the MultiCare mark on white (exhibit footer). Replace this file
-     with the official MultiCare logo artwork (full-colour version) supplied by MultiCare; keep
-     the file name so the exhibit and the standalone build pick it up. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 470 85" width="470" height="85" role="img" aria-label="MultiCare">
-  <text x="0" y="78" font-family="Calibre, Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="96" font-weight="700" fill="#333333" textLength="470" lengthAdjust="spacingAndGlyphs">MultiCare</text>
-</svg>

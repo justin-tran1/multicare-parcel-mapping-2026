@@ -51,8 +51,8 @@ code { font-size: 12px; background: #eef1f1; padding: 0 3px; border-radius: 3px;
   padding: 0 14px;
 }
 /* Logos: the official CBRE wordmark (assets/cbre-logo-white.png on green bars,
-   assets/cbre-logo-green.png on white) beside the MultiCare mark (assets/multicare-logo*.svg,
-   a placeholder wordmark until the official artwork replaces the files). */
+   assets/cbre-logo-green.png on white) beside the official MultiCare mark
+   (assets/multicare-logo-white.png reversed for the bars, assets/multicare-logo.png on white). */
 .brand { display: flex; align-items: center; gap: 12px; flex: none; }
 .logo { display: block; width: auto; }
 .brand .logo { height: 22px; }
@@ -237,9 +237,10 @@ table.parcels td.zoning { white-space: nowrap; font-variant-numeric: tabular-num
   .results { max-height: 45vh; }
   .results-actions label.check { display: none; }
 }
-/* Phone widths: the two logos would push the top-bar buttons out of a viewport that cannot
-   scroll sideways, so the second mark gives way first and the CBRE wordmark shrinks. */
-@media (max-width: 700px) {
+/* Narrow bars: the logos crowd the page title, and then would push the buttons out of a
+   viewport that cannot scroll sideways. The decorative second mark gives way before the
+   title is truncated, and the CBRE wordmark shrinks. */
+@media (max-width: 800px) {
   .brand .logo-multicare, .brand .brand-divider { display: none; }
   .brand .logo { height: 18px; }
   .topbar { gap: 10px; padding: 0 10px; }
