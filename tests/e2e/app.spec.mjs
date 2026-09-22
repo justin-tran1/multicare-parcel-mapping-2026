@@ -162,6 +162,171 @@ test.describe('radius study', () => {
     await expect(page.locator('.leaflet-popup .popup')).toBeVisible();
   });
 
+  test('the sidebar pin can be dragged and dropped onto the map, landing on a parcel', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto('/');
+    await page.evaluate(({ lat, lon }) => window.__parcelApp.state.map.setView([lat, lon], 17), ALLENMORE);
+    await page.waitForFunction(() => window.__parcelApp.state.view.records.size > 0, null, { timeout: 20000 });
+    await expect(page.locator('#pin-handle')).toHaveAttribute('draggable', 'true');
+    const box = await page.locator('#map').boundingBox();
+    // drop away from the map centre so the assertion proves the drop point was used, not the centre
+    const target = { x: Math.round(box.width / 2) - 90, y: Math.round(box.height / 2) - 60 };
+    const expected = await page.evaluate((t) => {
+      const ll = window.__parcelApp.state.map.containerPointToLatLng([t.x, t.y]);
+      return { lat: ll.lat, lon: ll.lng };
+    }, target);
+    expect(Math.abs(expected.lat - ALLENMORE.lat) + Math.abs(expected.lon - ALLENMORE.lon)).toBeGreaterThan(1e-4);
+    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: target });
+    await expect(page.locator('.pin-icon')).toHaveCount(1, { timeout: 10000 });
+    const pin = await page.evaluate(() => window.__parcelApp.state.pin);
+    expect(Math.abs(pin.lat - expected.lat)).toBeLessThan(1e-5);
+    expect(Math.abs(pin.lon - expected.lon)).toBeLessThan(1e-5);
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('#map')).not.toHaveClass(/drop-target/);
+    await expect(page.locator('body')).not.toHaveClass(/dragging-pin/);
+    await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+    // dropping the pin again moves it to the new drop point and re-runs the study
+    await page.evaluate(() => { window.__parcelApp.state.study.projector.__stale = true; });
+    const second = { x: Math.round(box.width / 2) + 120, y: Math.round(box.height / 2) + 80 };
+    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: second });
+    await page.waitForFunction(() => { const s = window.__parcelApp.state.study; return s.projector && !s.projector.__stale; }, null, { timeout: 20000 });
+    const moved = await page.evaluate(() => window.__parcelApp.state.pin);
+    expect(Math.abs(moved.lat - pin.lat) + Math.abs(moved.lon - pin.lon)).toBeGreaterThan(1e-4);
+    await expect(page.locator('.pin-icon')).toHaveCount(1);
+    // the pin travels under its own private type, which is what the map accepts
+    const types = await page.evaluate(() => {
+      const dt = new DataTransfer();
+      const handle = document.getElementById('pin-handle');
+      handle.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      handle.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return Array.from(dt.types);
+    });
+    expect(types).toContain('application/x-parcel-radius-pin');
+    // a drag carrying that type is offered the map even when it did not start here
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData('application/x-parcel-radius-pin', 'parcel-radius-pin');
+      window.__parcelApp.state.map.getContainer().dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator('#map')).toHaveClass(/drop-target/);
+    // text dragged from elsewhere is not
+    await page.evaluate(() => {
+      const map = window.__parcelApp.state.map.getContainer();
+      map.classList.remove('drop-target');
+      const dt = new DataTransfer();
+      dt.setData('text/plain', 'just some text');
+      map.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator('#map')).not.toHaveClass(/drop-target/);
+    // the highlight follows the pointer: it survives a move between the map's own panes and a
+    // null relatedTarget, and clears over the sidebar that overlays the map and on leaving
+    await page.setViewportSize({ width: 800, height: 800 });
+    const states = await page.evaluate(() => {
+      const map = window.__parcelApp.state.map.getContainer();
+      const side = document.getElementById('sidebar');
+      if (document.getElementById('layout').classList.contains('sidebar-collapsed')) document.getElementById('btn-sidebar').click();
+      const dt = new DataTransfer();
+      dt.setData('application/x-parcel-radius-pin', 'parcel-radius-pin');
+      const fire = (type, opts) => map.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true, ...opts }));
+      const out = {};
+      fire('dragenter', { clientX: 600, clientY: 400 });
+      out.entered = map.classList.contains('drop-target');
+      fire('dragleave', { clientX: 620, clientY: 400, relatedTarget: document.querySelector('.leaflet-map-pane') });
+      out.crossPane = map.classList.contains('drop-target');
+      fire('dragleave', { clientX: 620, clientY: 400 }); // engines that leave relatedTarget null
+      out.nullRelated = map.classList.contains('drop-target');
+      fire('dragleave', { clientX: 150, clientY: 400, relatedTarget: side });
+      out.overSidebar = map.classList.contains('drop-target');
+      fire('dragenter', { clientX: 600, clientY: 400 });
+      fire('dragleave', { clientX: 0, clientY: 0 });
+      out.leftWindow = map.classList.contains('drop-target');
+      return out;
+    });
+    expect(states).toEqual({ entered: true, crossPane: true, nullRelated: true, overSidebar: false, leftWindow: false });
+    await page.setViewportSize({ width: 1400, height: 900 });
+  });
+
+  test('the header and the exhibit carry the CBRE logo with the MultiCare mark; the print button reads Print Exhibit', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto(hashFor());
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('#btn-print')).toHaveText('Print Exhibit');
+    const loaded = (sel) => page.locator(sel).evaluateAll((imgs) => imgs.map((i) => i.complete && i.naturalWidth > 0));
+    await expect(page.locator('.topbar .brand img.logo-cbre')).toBeVisible();
+    await expect(page.locator('.topbar .brand img.logo-cbre')).toHaveAttribute('src', /assets\/cbre-logo-white\.png$/);
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toBeVisible();
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toHaveAttribute('alt', 'MultiCare');
+    expect(await loaded('.topbar .brand img')).toEqual([true, true]);
+    // print layout: logos top-left of the green header and again in the footer beside the disclaimer
+    await page.evaluate(() => { window.print = () => {}; });
+    await page.setViewportSize({ width: 1700, height: 1100 });
+    await page.click('#btn-print');
+    await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+    const header = page.locator('.exhibit-header');
+    await expect(header.locator('.exhibit-logos img.logo-cbre')).toBeVisible();
+    await expect(header.locator('.exhibit-logos img.logo-multicare')).toBeVisible();
+    const logos = await header.locator('.exhibit-logos').boundingBox();
+    const title = await header.locator('#exhibit-title').boundingBox();
+    expect(logos.x).toBeLessThan(title.x); // logos sit left of the title
+    await expect(page.locator('#exhibit-footer .exhibit-marks img.logo-cbre')).toHaveAttribute('src', /assets\/cbre-logo-green\.png$/);
+    await expect(page.locator('#exhibit-footer .exhibit-marks img.logo-cbre')).toBeVisible();
+    await expect(page.locator('#exhibit-footer .exhibit-marks img.logo-multicare')).toBeVisible();
+    await expect(page.locator('#exhibit-disclaimer')).toContainText('CBRE, Inc. All rights reserved');
+    await expect(page.locator('#exhibit-disclaimer')).toContainText('Generated');
+    expect(await loaded('.exhibit-header img, #exhibit-footer img')).toEqual([true, true, true, true]);
+    await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+    // a long title and a long subtitle both fit the header; neither is cut off and the map stays
+    await page.fill('#title', 'MultiCare Tacoma General Hospital and Mary Bridge Children’s Hospital Campus Redevelopment Study | Tacoma, Washington');
+    await page.dispatchEvent('#title', 'input');
+    await page.fill('#subtitle', 'All properties within 250 yards of the MultiCare Allenmore Hospital campus boundary, Tacoma, Washington, as recorded by the assessor');
+    await page.dispatchEvent('#subtitle', 'input');
+    await page.click('#btn-print');
+    await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+    const layout = await page.evaluate(() => {
+      const fits = (el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1;
+      const header = document.querySelector('.exhibit-header');
+      const title = document.getElementById('exhibit-title');
+      const sub = document.getElementById('exhibit-subtitle');
+      return {
+        titleFits: fits(title), subFits: fits(sub), headerFits: fits(header),
+        headerHeight: header.getBoundingClientRect().height,
+        titleWidth: title.getBoundingClientRect().width,
+        mapHeight: document.querySelector('.map-wrap').getBoundingClientRect().height,
+        rows: document.querySelectorAll('.print-table table.parcels tbody tr').length,
+      };
+    });
+    expect(layout.titleFits, 'exhibit title is clipped').toBe(true);
+    expect(layout.subFits, 'exhibit subtitle is clipped').toBe(true);
+    expect(layout.headerFits, 'exhibit header overflows').toBe(true);
+    expect(layout.headerHeight).toBeLessThan(1.6 * 96 + 2); // capped so it cannot push the map off the sheet
+    expect(layout.titleWidth).toBeGreaterThan(300);
+    expect(layout.mapHeight).toBeGreaterThan(200);
+    expect(layout.rows).toBeGreaterThan(0);
+    await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+  });
+
+  test('the top bar keeps its buttons reachable at phone widths', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.setViewportSize({ width: 375, height: 700 });
+    await page.goto('/');
+    await expect(page.locator('#btn-print')).toBeVisible();
+    for (const sel of ['#btn-print', '#btn-export']) {
+      const b = await page.locator(sel).boundingBox();
+      expect(b.x, `${sel} starts inside the viewport`).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, `${sel} ends inside the viewport`).toBeLessThanOrEqual(375);
+    }
+    // the CBRE mark stays; the second mark steps aside on a narrow bar
+    await expect(page.locator('.topbar .brand img.logo-cbre')).toBeVisible();
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toBeHidden();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // the page keeps its heading for assistive technology even where the bar has no room for it
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Washington Parcel Radius Map');
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.topbar-title')).display)).not.toBe('none');
+    // both marks are back on a wide bar
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toBeVisible();
+  });
+
   test('coordinates entered as an address place the pin; clear removes everything', async ({ page }) => {
     await installMockArcGIS(page, { parcels });
     await page.goto('/');

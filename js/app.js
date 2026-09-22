@@ -452,7 +452,9 @@ async function setPin(pin, { reverse = false, fit = true } = {}) {
 function updatePinInfo() {
   const p = state.pin;
   if (!p) {
-    $('#pin-info').textContent = 'No pin yet. Search an address or choose “Drop pin on map”, then click the map. The pin can be dragged.';
+    // The drag clause is hidden from assistive technology: the pin handle needs a pointer,
+    // and the “Drop pin on map” button is the keyboard and screen-reader path.
+    $('#pin-info').innerHTML = 'No pin yet. Search an address, or choose “Drop pin on map” and click the map.<span aria-hidden="true"> You can also drag the pin icon onto the map.</span> The pin can be dragged.';
     return;
   }
   $('#pin-info').innerHTML = `<strong>Pin:</strong> ${escapeHtml(p.label || '')} <span class="muted">(${p.lat.toFixed(6)}, ${p.lon.toFixed(6)})</span>`;
@@ -986,6 +988,65 @@ function wireControls() {
     printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || NOT_AVAILABLE}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
+  wirePinDrag();
+}
+
+// The sidebar pin can be dragged (HTML5 drag and drop) and dropped anywhere on the map,
+// including on parcels, labels and the existing pin; the drop point becomes the study centre.
+function wirePinDrag() {
+  const handle = $('#pin-handle');
+  const container = state.map.getContainer();
+  if (!handle || !container) return;
+  const TOKEN = 'parcel-radius-pin';
+  const PIN_MIME = 'application/x-parcel-radius-pin';
+  let dragging = false;
+  const reset = () => {
+    dragging = false;
+    document.body.classList.remove('dragging-pin');
+    container.classList.remove('drop-target');
+  };
+  handle.addEventListener('dragstart', (e) => {
+    dragging = true;
+    // A private type identifies the pin: payloads are unreadable until the drop, but the type
+    // list is not, so the map offers itself as a target for the pin and not for any dragged text.
+    e.dataTransfer.setData(PIN_MIME, TOKEN);
+    e.dataTransfer.setData('text/plain', TOKEN);
+    e.dataTransfer.effectAllowed = 'move';
+    if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(handle, handle.offsetWidth / 2, handle.offsetHeight);
+    document.body.classList.add('dragging-pin');
+  });
+  handle.addEventListener('dragend', reset);
+  const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes(PIN_MIME);
+  container.addEventListener('dragenter', (e) => {
+    if (!mayAccept(e)) return;
+    e.preventDefault();
+    container.classList.add('drop-target');
+  });
+  container.addEventListener('dragover', (e) => {
+    if (!mayAccept(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  container.addEventListener('dragleave', (e) => {
+    // Crossing between the map's own panes must not drop the highlight. Some engines leave
+    // relatedTarget null on drag events, so fall back to what is under the pointer, which also
+    // clears the highlight when the drag moves onto the sidebar overlaying the map.
+    if (container.contains(e.relatedTarget)) return;
+    const r = container.getBoundingClientRect();
+    const inside = e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom;
+    const under = inside ? document.elementFromPoint(e.clientX, e.clientY) : null;
+    if (!under || !container.contains(under)) container.classList.remove('drop-target');
+  });
+  container.addEventListener('drop', (e) => {
+    const isPin = dragging || e.dataTransfer?.getData(PIN_MIME) === TOKEN || e.dataTransfer?.getData('text/plain') === TOKEN;
+    reset();
+    if (!isPin) return;
+    e.preventDefault();
+    const ll = state.map.mouseEventToLatLng(e);
+    setDropMode(false);
+    state.map.closePopup();
+    setPin({ lat: ll.lat, lon: ll.lng, label: '' }, { reverse: true });
+  });
 }
 
 // ---------------------------------------------------------------------------

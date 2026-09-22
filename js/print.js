@@ -1,7 +1,6 @@
 // Print exhibit: reflows the page into a tabloid-landscape layout (header bar, map,
 // numbered table, legend, disclaimer), waits for basemap tiles, then opens the print dialog.
 import { DISCLAIMER } from './config.js';
-import { escapeHtml } from './format.js';
 
 function waitForTiles(map, timeoutMs = 4000) {
   return new Promise((resolve) => {
@@ -27,6 +26,31 @@ function waitForTiles(map, timeoutMs = 4000) {
 }
 
 const ROWS_PER_COLUMN = 52;
+
+/**
+ * Shrinks the header type until the title and subtitle fit the header band. Both wrap, so
+ * this only comes into play for unusually long entries; nothing the user typed is dropped
+ * unless it cannot be made to fit at the smallest size.
+ */
+function fitHeaderText() {
+  const header = document.querySelector('.exhibit-header');
+  const title = document.getElementById('exhibit-title');
+  const subtitle = document.getElementById('exhibit-subtitle');
+  if (!header) return;
+  const overflows = () => header.scrollHeight > header.clientHeight + 1;
+  // the subtitle is the secondary line, so it gives way first
+  for (const [el, from, to] of [[subtitle, 16, 9], [title, 28, 12]]) {
+    if (!el) continue;
+    for (let size = from; size >= to && overflows(); size -= 1) el.style.fontSize = `${size}px`;
+  }
+}
+
+function clearHeaderText() {
+  for (const id of ['exhibit-title', 'exhibit-subtitle']) {
+    const el = document.getElementById(id);
+    if (el) el.style.fontSize = '';
+  }
+}
 
 /**
  * Clones the results table into one or more compact side-by-side column blocks so that
@@ -96,8 +120,8 @@ export async function printExhibit({ map, title, subtitle, bounds, footerLeft = 
   document.getElementById('exhibit-title').textContent = title || 'Parcel radius study';
   document.getElementById('exhibit-subtitle').textContent = subtitle || '';
   const stamp = new Date().toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
-  document.getElementById('exhibit-footer').innerHTML =
-    `<div class="disclaimer">${escapeHtml(DISCLAIMER)} ${escapeHtml(footerLeft)} Generated ${escapeHtml(stamp)}.</div><div class="cbre">CBRE</div>`;
+  // The footer's logo marks are static markup in index.html; only the disclaimer text changes.
+  document.getElementById('exhibit-disclaimer').textContent = `${DISCLAIMER} ${footerLeft} Generated ${stamp}.`;
 
   const results = document.getElementById('results');
   const wasCollapsed = results.classList.contains('collapsed');
@@ -108,6 +132,7 @@ export async function printExhibit({ map, title, subtitle, bounds, footerLeft = 
 
   const restore = () => {
     body.classList.remove('print-mode');
+    clearHeaderText();
     printTable?.remove();
     if (wasCollapsed) results.classList.add('collapsed');
     map.invalidateSize({ animate: false });
@@ -117,6 +142,8 @@ export async function printExhibit({ map, title, subtitle, bounds, footerLeft = 
   window.addEventListener('afterprint', restore);
 
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  clearHeaderText();
+  fitHeaderText();
   map.invalidateSize({ animate: false });
   if (bounds) map.fitBounds(bounds, { padding: [30, 30], animate: false });
   await waitForTiles(map);
