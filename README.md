@@ -226,6 +226,7 @@ data/assessor/pierce` (about 120 MB of downloads; the county blocks some network
 
 ```
 index.html            app shell
+assets/               CBRE wordmark PNGs and the MultiCare marks (inlined by build:single)
 css/app.css           styles, CBRE palette, print exhibit layout
 js/app.js             controller: map, pin, ring, study, table, print, sharing
 js/parcels.js         provider routing, live queries, enrichment joins, record normalisation

@@ -452,7 +452,9 @@ async function setPin(pin, { reverse = false, fit = true } = {}) {
 function updatePinInfo() {
   const p = state.pin;
   if (!p) {
-    $('#pin-info').textContent = 'No pin yet. Search an address, choose “Drop pin on map” and click the map, or drag the pin icon onto the map. The pin can be dragged.';
+    // The drag clause is hidden from assistive technology: the pin handle needs a pointer,
+    // and the “Drop pin on map” button is the keyboard and screen-reader path.
+    $('#pin-info').innerHTML = 'No pin yet. Search an address, or choose “Drop pin on map” and click the map.<span aria-hidden="true"> You can also drag the pin icon onto the map.</span> The pin can be dragged.';
     return;
   }
   $('#pin-info').innerHTML = `<strong>Pin:</strong> ${escapeHtml(p.label || '')} <span class="muted">(${p.lat.toFixed(6)}, ${p.lon.toFixed(6)})</span>`;
@@ -996,6 +998,7 @@ function wirePinDrag() {
   const container = state.map.getContainer();
   if (!handle || !container) return;
   const TOKEN = 'parcel-radius-pin';
+  const PIN_MIME = 'application/x-parcel-radius-pin';
   let dragging = false;
   const reset = () => {
     dragging = false;
@@ -1004,15 +1007,16 @@ function wirePinDrag() {
   };
   handle.addEventListener('dragstart', (e) => {
     dragging = true;
+    // A private type identifies the pin: payloads are unreadable until the drop, but the type
+    // list is not, so the map offers itself as a target for the pin and not for any dragged text.
+    e.dataTransfer.setData(PIN_MIME, TOKEN);
     e.dataTransfer.setData('text/plain', TOKEN);
     e.dataTransfer.effectAllowed = 'move';
     if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(handle, handle.offsetWidth / 2, handle.offsetHeight);
     document.body.classList.add('dragging-pin');
   });
   handle.addEventListener('dragend', reset);
-  // dataTransfer contents are unreadable until the drop, so the drag-over checks rely on the flag
-  // (same document) or on a plain-text payload (Playwright and other drivers).
-  const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes('text/plain');
+  const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes(PIN_MIME);
   container.addEventListener('dragenter', (e) => {
     if (!mayAccept(e)) return;
     e.preventDefault();
@@ -1024,10 +1028,15 @@ function wirePinDrag() {
     e.dataTransfer.dropEffect = 'move';
   });
   container.addEventListener('dragleave', (e) => {
-    if (!container.contains(e.relatedTarget)) container.classList.remove('drop-target');
+    // Some engines leave relatedTarget null on drag events, so fall back to the pointer position:
+    // crossing between the map's own panes must not drop the highlight.
+    if (container.contains(e.relatedTarget)) return;
+    const r = container.getBoundingClientRect();
+    const inside = e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom;
+    if (!inside) container.classList.remove('drop-target');
   });
   container.addEventListener('drop', (e) => {
-    const isPin = dragging || e.dataTransfer?.getData('text/plain') === TOKEN;
+    const isPin = dragging || e.dataTransfer?.getData(PIN_MIME) === TOKEN || e.dataTransfer?.getData('text/plain') === TOKEN;
     reset();
     if (!isPin) return;
     e.preventDefault();

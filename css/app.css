@@ -117,7 +117,7 @@ label.check.small { font-size: 12px; margin: 0; }
 .pin-handle { display: inline-flex; align-items: center; cursor: grab; padding: 0 2px; line-height: 0; }
 .pin-handle:active { cursor: grabbing; }
 .pin-handle svg { display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25)); }
-body.dragging-pin .map { cursor: copy; }
+body.dragging-pin .pin-handle { opacity: 0.35; }
 .map.drop-target::after {
   content: ''; position: absolute; inset: 0; z-index: 1200; pointer-events: none;
   border: 3px dashed var(--accent-green); background: rgba(23, 232, 143, 0.06);
@@ -237,6 +237,16 @@ table.parcels td.zoning { white-space: nowrap; font-variant-numeric: tabular-num
   .results { max-height: 45vh; }
   .results-actions label.check { display: none; }
 }
+/* Phone widths: the two logos would push the top-bar buttons out of a viewport that cannot
+   scroll sideways, so the second mark gives way first and the CBRE wordmark shrinks. */
+@media (max-width: 700px) {
+  .brand .logo-multicare, .brand .brand-divider { display: none; }
+  .brand .logo { height: 18px; }
+  .topbar { gap: 10px; padding: 0 10px; }
+}
+@media (max-width: 420px) {
+  .topbar-title { display: none; }
+}
 
 /* ---------- Print exhibit mode ---------- */
 body.print-mode { overflow: visible; }
@@ -257,7 +267,9 @@ body.print-mode .exhibit-header {
 body.print-mode .exhibit-logos { display: flex; align-items: center; gap: 16px; flex: none; padding-right: 18px; border-right: 1px solid rgba(255, 255, 255, 0.45); }
 body.print-mode .exhibit-logos .logo { height: 0.36in; }
 body.print-mode .exhibit-logos .brand-divider { height: 0.36in; }
-body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The title wraps rather than being clipped: no part of a title the user typed is dropped
+   from the printed exhibit, and the header grows within its 0.85in minimum. */
+body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow-wrap: anywhere; }
 body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
 body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
@@ -283,7 +295,8 @@ body.print-mode .exhibit-footer {
 }
 body.print-mode .exhibit-footer .exhibit-marks { display: flex; align-items: center; gap: 14px; flex: none; }
 body.print-mode .exhibit-footer .logo { height: 0.3in; }
-body.print-mode .exhibit-footer .brand-divider { height: 0.3in; background: var(--light-grey); }
+/* Drawn as a border, not a background, so it survives printing with background graphics off. */
+body.print-mode .exhibit-footer .brand-divider { height: 0.3in; background: none; border-left: 1px solid var(--light-grey); }
 body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
 @media print {

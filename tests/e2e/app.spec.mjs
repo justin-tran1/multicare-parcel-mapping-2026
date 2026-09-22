@@ -169,23 +169,38 @@ test.describe('radius study', () => {
     await page.waitForFunction(() => window.__parcelApp.state.view.records.size > 0, null, { timeout: 20000 });
     await expect(page.locator('#pin-handle')).toHaveAttribute('draggable', 'true');
     const box = await page.locator('#map').boundingBox();
-    // the map centre is covered by the MultiCare parcel polygon
-    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: { x: box.width / 2, y: box.height / 2 } });
+    // drop away from the map centre so the assertion proves the drop point was used, not the centre
+    const target = { x: Math.round(box.width / 2) - 90, y: Math.round(box.height / 2) - 60 };
+    const expected = await page.evaluate((t) => {
+      const ll = window.__parcelApp.state.map.containerPointToLatLng([t.x, t.y]);
+      return { lat: ll.lat, lon: ll.lng };
+    }, target);
+    expect(Math.abs(expected.lat - ALLENMORE.lat) + Math.abs(expected.lon - ALLENMORE.lon)).toBeGreaterThan(1e-4);
+    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: target });
     await expect(page.locator('.pin-icon')).toHaveCount(1, { timeout: 10000 });
     const pin = await page.evaluate(() => window.__parcelApp.state.pin);
-    expect(Math.abs(pin.lat - ALLENMORE.lat)).toBeLessThan(0.0005);
-    expect(Math.abs(pin.lon - ALLENMORE.lon)).toBeLessThan(0.0005);
-    await expect(page.locator('table.parcels tbody tr').first()).toContainText('MULTICARE HEALTH SYSTEMS', { timeout: 20000 });
+    expect(Math.abs(pin.lat - expected.lat)).toBeLessThan(1e-5);
+    expect(Math.abs(pin.lon - expected.lon)).toBeLessThan(1e-5);
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#map')).not.toHaveClass(/drop-target/);
     await expect(page.locator('body')).not.toHaveClass(/dragging-pin/);
     await expect(page.locator('.leaflet-popup')).toHaveCount(0);
-    // dropping the pin again moves it and re-runs the study around the new centre
+    // dropping the pin again moves it to the new drop point and re-runs the study
     await page.evaluate(() => { window.__parcelApp.state.study.projector.__stale = true; });
-    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: { x: box.width / 2 + 120, y: box.height / 2 + 80 } });
+    const second = { x: Math.round(box.width / 2) + 120, y: Math.round(box.height / 2) + 80 };
+    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: second });
     await page.waitForFunction(() => { const s = window.__parcelApp.state.study; return s.projector && !s.projector.__stale; }, null, { timeout: 20000 });
     const moved = await page.evaluate(() => window.__parcelApp.state.pin);
-    expect(Math.abs(moved.lat - pin.lat) + Math.abs(moved.lon - pin.lon)).toBeGreaterThan(1e-5);
+    expect(Math.abs(moved.lat - pin.lat) + Math.abs(moved.lon - pin.lon)).toBeGreaterThan(1e-4);
     await expect(page.locator('.pin-icon')).toHaveCount(1);
+    // text dragged from elsewhere is not offered the map as a drop target
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', 'just some text');
+      const map = window.__parcelApp.state.map.getContainer();
+      map.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator('#map')).not.toHaveClass(/drop-target/);
   });
 
   test('the header and the exhibit carry the CBRE logo with the MultiCare mark; the print button reads Print Exhibit', async ({ page }) => {
@@ -217,6 +232,33 @@ test.describe('radius study', () => {
     await expect(page.locator('#exhibit-disclaimer')).toContainText('Generated');
     expect(await loaded('.exhibit-header img, #exhibit-footer img')).toEqual([true, true, true, true]);
     await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+    // a long title wraps in the exhibit header instead of being cut off
+    await page.fill('#title', 'MultiCare Tacoma General Hospital and Mary Bridge Children’s Hospital Campus Redevelopment Study | Tacoma, Washington');
+    await page.dispatchEvent('#title', 'input');
+    await page.click('#btn-print');
+    await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+    const clipped = await page.locator('#exhibit-title').evaluate((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1);
+    expect(clipped, 'exhibit title is clipped').toBe(false);
+    await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+  });
+
+  test('the top bar keeps its buttons reachable at phone widths', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.setViewportSize({ width: 375, height: 700 });
+    await page.goto('/');
+    await expect(page.locator('#btn-print')).toBeVisible();
+    for (const sel of ['#btn-print', '#btn-export']) {
+      const b = await page.locator(sel).boundingBox();
+      expect(b.x, `${sel} starts inside the viewport`).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, `${sel} ends inside the viewport`).toBeLessThanOrEqual(375);
+    }
+    // the CBRE mark stays; the second mark steps aside on a narrow bar
+    await expect(page.locator('.topbar .brand img.logo-cbre')).toBeVisible();
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toBeHidden();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // both marks are back on a wide bar
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toBeVisible();
   });
 
   test('coordinates entered as an address place the pin; clear removes everything', async ({ page }) => {

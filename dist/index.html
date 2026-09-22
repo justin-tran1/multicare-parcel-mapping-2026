@@ -788,7 +788,7 @@ label.check.small { font-size: 12px; margin: 0; }
 .pin-handle { display: inline-flex; align-items: center; cursor: grab; padding: 0 2px; line-height: 0; }
 .pin-handle:active { cursor: grabbing; }
 .pin-handle svg { display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25)); }
-body.dragging-pin .map { cursor: copy; }
+body.dragging-pin .pin-handle { opacity: 0.35; }
 .map.drop-target::after {
   content: ''; position: absolute; inset: 0; z-index: 1200; pointer-events: none;
   border: 3px dashed var(--accent-green); background: rgba(23, 232, 143, 0.06);
@@ -908,6 +908,16 @@ table.parcels td.zoning { white-space: nowrap; font-variant-numeric: tabular-num
   .results { max-height: 45vh; }
   .results-actions label.check { display: none; }
 }
+/* Phone widths: the two logos would push the top-bar buttons out of a viewport that cannot
+   scroll sideways, so the second mark gives way first and the CBRE wordmark shrinks. */
+@media (max-width: 700px) {
+  .brand .logo-multicare, .brand .brand-divider { display: none; }
+  .brand .logo { height: 18px; }
+  .topbar { gap: 10px; padding: 0 10px; }
+}
+@media (max-width: 420px) {
+  .topbar-title { display: none; }
+}
 
 /* ---------- Print exhibit mode ---------- */
 body.print-mode { overflow: visible; }
@@ -928,7 +938,9 @@ body.print-mode .exhibit-header {
 body.print-mode .exhibit-logos { display: flex; align-items: center; gap: 16px; flex: none; padding-right: 18px; border-right: 1px solid rgba(255, 255, 255, 0.45); }
 body.print-mode .exhibit-logos .logo { height: 0.36in; }
 body.print-mode .exhibit-logos .brand-divider { height: 0.36in; }
-body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The title wraps rather than being clipped: no part of a title the user typed is dropped
+   from the printed exhibit, and the header grows within its 0.85in minimum. */
+body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow-wrap: anywhere; }
 body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
 body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
@@ -954,7 +966,8 @@ body.print-mode .exhibit-footer {
 }
 body.print-mode .exhibit-footer .exhibit-marks { display: flex; align-items: center; gap: 14px; flex: none; }
 body.print-mode .exhibit-footer .logo { height: 0.3in; }
-body.print-mode .exhibit-footer .brand-divider { height: 0.3in; background: var(--light-grey); }
+/* Drawn as a border, not a background, so it survives printing with background graphics off. */
+body.print-mode .exhibit-footer .brand-divider { height: 0.3in; background: none; border-left: 1px solid var(--light-grey); }
 body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
 @media print {
@@ -996,7 +1009,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           <span class="pin-handle" id="pin-handle" draggable="true" title="Drag this pin onto the map" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40" width="24" height="32" focusable="false"><path d="M15 1C7.3 1 1 7.2 1 14.9 1 25 15 39 15 39s14-14 14-24.1C29 7.2 22.7 1 15 1z" fill="#003F2D" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5.5" fill="#17E88F"/></svg></span>
           <button class="btn btn-outline" type="button" id="btn-clear" disabled>Clear</button>
         </div>
-        <p class="hint" id="pin-info">No pin yet. Search an address, choose “Drop pin on map” and click the map, or drag the pin icon onto the map. The pin can be dragged.</p>
+        <p class="hint" id="pin-info">No pin yet. Search an address, or choose “Drop pin on map” and click the map.<span aria-hidden="true"> You can also drag the pin icon onto the map.</span> The pin can be dragged.</p>
       </section>
 
       <section class="panel" aria-labelledby="h-ring">
@@ -5447,7 +5460,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   function updatePinInfo() {
     const p = state.pin;
     if (!p) {
-      $("#pin-info").textContent = "No pin yet. Search an address, choose \u201CDrop pin on map\u201D and click the map, or drag the pin icon onto the map. The pin can be dragged.";
+      $("#pin-info").innerHTML = 'No pin yet. Search an address, or choose \u201CDrop pin on map\u201D and click the map.<span aria-hidden="true"> You can also drag the pin icon onto the map.</span> The pin can be dragged.';
       return;
     }
     $("#pin-info").innerHTML = `<strong>Pin:</strong> ${escapeHtml(p.label || "")} <span class="muted">(${p.lat.toFixed(6)}, ${p.lon.toFixed(6)})</span>`;
@@ -5967,6 +5980,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     const container = state.map.getContainer();
     if (!handle || !container) return;
     const TOKEN = "parcel-radius-pin";
+    const PIN_MIME = "application/x-parcel-radius-pin";
     let dragging = false;
     const reset = () => {
       dragging = false;
@@ -5975,13 +5989,14 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     };
     handle.addEventListener("dragstart", (e) => {
       dragging = true;
+      e.dataTransfer.setData(PIN_MIME, TOKEN);
       e.dataTransfer.setData("text/plain", TOKEN);
       e.dataTransfer.effectAllowed = "move";
       if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(handle, handle.offsetWidth / 2, handle.offsetHeight);
       document.body.classList.add("dragging-pin");
     });
     handle.addEventListener("dragend", reset);
-    const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes("text/plain");
+    const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes(PIN_MIME);
     container.addEventListener("dragenter", (e) => {
       if (!mayAccept(e)) return;
       e.preventDefault();
@@ -5993,10 +6008,13 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       e.dataTransfer.dropEffect = "move";
     });
     container.addEventListener("dragleave", (e) => {
-      if (!container.contains(e.relatedTarget)) container.classList.remove("drop-target");
+      if (container.contains(e.relatedTarget)) return;
+      const r = container.getBoundingClientRect();
+      const inside = e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom;
+      if (!inside) container.classList.remove("drop-target");
     });
     container.addEventListener("drop", (e) => {
-      const isPin = dragging || e.dataTransfer?.getData("text/plain") === TOKEN;
+      const isPin = dragging || e.dataTransfer?.getData(PIN_MIME) === TOKEN || e.dataTransfer?.getData("text/plain") === TOKEN;
       reset();
       if (!isPin) return;
       e.preventDefault();

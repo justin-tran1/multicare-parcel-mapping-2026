@@ -23,3 +23,14 @@ test('every logo the page references exists in assets/ and the print button read
   assert.match(source, />Print Exhibit<\/button>/);
   assert.match(dist, />Print Exhibit<\/button>/);
 });
+
+// Guards against a committed dist built before an asset was replaced: each logo the source
+// references must appear in dist as the base64 of the file that is in assets/ today.
+test('the inlined logos match the current files in assets/', async () => {
+  const refs = [...new Set([...source.matchAll(/src="assets\/([^"]+)"/g)].map((m) => m[1]))];
+  assert.ok(refs.length >= 4);
+  for (const file of refs) {
+    const b64 = (await readFile(new URL(`../../assets/${file}`, import.meta.url))).toString('base64');
+    assert.ok(dist.includes(`base64,${b64}`), `dist/index.html does not carry the current assets/${file}; run npm run build:single`);
+  }
+});
