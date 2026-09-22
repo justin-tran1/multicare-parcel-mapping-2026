@@ -13,11 +13,15 @@
 <body>
   <header class="topbar" role="banner">
     <button class="icon-btn sidebar-toggle" id="btn-sidebar" type="button" aria-label="Toggle controls" aria-expanded="true">&#9776;</button>
-    <div class="brand" aria-label="CBRE">CBRE</div>
+    <div class="brand">
+      <img class="logo logo-cbre" src="assets/cbre-logo-white.png" alt="CBRE" width="338" height="85">
+      <span class="brand-divider" aria-hidden="true"></span>
+      <img class="logo logo-multicare" src="assets/multicare-logo-white.svg" alt="MultiCare" width="470" height="85">
+    </div>
     <h1 class="topbar-title">Washington Parcel Radius Map</h1>
     <div class="topbar-actions">
       <button class="btn btn-ghost" id="btn-export" type="button" disabled title="Download the parcel table as CSV">Export CSV</button>
-      <button class="btn btn-accent" id="btn-print" type="button" disabled title="Lay out the map and table as a printable exhibit">Print exhibit</button>
+      <button class="btn btn-accent" id="btn-print" type="button" disabled title="Lay out the map and table as a printable exhibit">Print Exhibit</button>
     </div>
   </header>
 
@@ -34,9 +38,10 @@
         <ul id="geocode-results" class="geocode-results" hidden></ul>
         <div class="row">
           <button class="btn btn-outline" type="button" id="btn-drop" aria-pressed="false">Drop pin on map</button>
+          <span class="pin-handle" id="pin-handle" draggable="true" title="Drag this pin onto the map" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40" width="24" height="32" focusable="false"><path d="M15 1C7.3 1 1 7.2 1 14.9 1 25 15 39 15 39s14-14 14-24.1C29 7.2 22.7 1 15 1z" fill="#003F2D" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5.5" fill="#17E88F"/></svg></span>
           <button class="btn btn-outline" type="button" id="btn-clear" disabled>Clear</button>
         </div>
-        <p class="hint" id="pin-info">No pin yet. Search an address or choose “Drop pin on map”, then click the map. The pin can be dragged.</p>
+        <p class="hint" id="pin-info">No pin yet. Search an address, choose “Drop pin on map” and click the map, or drag the pin icon onto the map. The pin can be dragged.</p>
       </section>
 
       <section class="panel" aria-labelledby="h-ring">
@@ -125,6 +130,11 @@
 
     <main class="main" id="main">
       <div class="exhibit-header" aria-hidden="true">
+        <div class="exhibit-logos">
+          <img class="logo logo-cbre" src="assets/cbre-logo-white.png" alt="CBRE" width="338" height="85">
+          <span class="brand-divider"></span>
+          <img class="logo logo-multicare" src="assets/multicare-logo-white.svg" alt="MultiCare" width="470" height="85">
+        </div>
         <div class="exhibit-title" id="exhibit-title">Parcel radius study</div>
         <div class="exhibit-subtitle" id="exhibit-subtitle"></div>
       </div>
@@ -149,7 +159,14 @@
         </div>
         <div class="table-wrap" id="table-wrap"></div>
       </section>
-      <div class="exhibit-footer" aria-hidden="true" id="exhibit-footer"></div>
+      <div class="exhibit-footer" aria-hidden="true" id="exhibit-footer">
+        <div class="disclaimer" id="exhibit-disclaimer"></div>
+        <div class="exhibit-marks">
+          <img class="logo logo-cbre" src="assets/cbre-logo-green.png" alt="CBRE" width="338" height="85">
+          <span class="brand-divider"></span>
+          <img class="logo logo-multicare" src="assets/multicare-logo.svg" alt="MultiCare" width="470" height="85">
+        </div>
+      </div>
     </main>
   </div>
 

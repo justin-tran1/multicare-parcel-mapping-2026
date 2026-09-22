@@ -50,7 +50,13 @@ code { font-size: 12px; background: #eef1f1; padding: 0 3px; border-radius: 3px;
   gap: 14px;
   padding: 0 14px;
 }
-.brand { font-weight: 800; letter-spacing: 0.06em; font-size: 20px; }
+/* Logos: the official CBRE wordmark (assets/cbre-logo-white.png on green bars,
+   assets/cbre-logo-green.png on white) beside the MultiCare mark (assets/multicare-logo*.svg,
+   a placeholder wordmark until the official artwork replaces the files). */
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.logo { display: block; width: auto; }
+.brand .logo { height: 22px; }
+.brand-divider { display: inline-block; width: 1px; height: 24px; background: rgba(255, 255, 255, 0.45); flex: none; }
 .topbar-title { font-size: 16px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-actions { display: flex; gap: 8px; }
 .icon-btn {
@@ -107,6 +113,15 @@ label.check { display: flex; align-items: center; gap: 6px; margin: 5px 0; curso
 label.check input { accent-color: var(--cbre-green); }
 label.check.small { font-size: 12px; margin: 0; }
 .hint { color: var(--text-muted); font-size: 12px; margin: 6px 0 0; }
+/* Draggable pin: drag it from the sidebar and drop it on the map to place the study centre. */
+.pin-handle { display: inline-flex; align-items: center; cursor: grab; padding: 0 2px; line-height: 0; }
+.pin-handle:active { cursor: grabbing; }
+.pin-handle svg { display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25)); }
+body.dragging-pin .map { cursor: copy; }
+.map.drop-target::after {
+  content: ''; position: absolute; inset: 0; z-index: 1200; pointer-events: none;
+  border: 3px dashed var(--accent-green); background: rgba(23, 232, 143, 0.06);
+}
 .muted { color: var(--text-muted); font-size: 12px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 6px; }
 .grid2 label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
@@ -235,10 +250,14 @@ body.print-mode .main {
   width: 16.2in; height: 10.2in; margin: 0 auto; background: #fff; border: 1px solid var(--light-grey);
 }
 body.print-mode .exhibit-header {
-  grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 18px;
   background: var(--cbre-green); color: #fff; padding: 10px 20px; min-height: 0.85in;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-body.print-mode .exhibit-title { font-size: 30px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
+body.print-mode .exhibit-logos { display: flex; align-items: center; gap: 16px; flex: none; padding-right: 18px; border-right: 1px solid rgba(255, 255, 255, 0.45); }
+body.print-mode .exhibit-logos .logo { height: 0.36in; }
+body.print-mode .exhibit-logos .brand-divider { height: 0.36in; }
+body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
 body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
@@ -262,7 +281,9 @@ body.print-mode .exhibit-footer {
   grid-area: foot; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
   padding: 6px 14px; font-size: 7pt; color: var(--text-muted); border-top: 1px solid var(--light-grey);
 }
-body.print-mode .exhibit-footer .cbre { font-size: 22pt; font-weight: 800; color: var(--cbre-green); letter-spacing: 0.06em; }
+body.print-mode .exhibit-footer .exhibit-marks { display: flex; align-items: center; gap: 14px; flex: none; }
+body.print-mode .exhibit-footer .logo { height: 0.3in; }
+body.print-mode .exhibit-footer .brand-divider { height: 0.3in; background: var(--light-grey); }
 body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
 @media print {

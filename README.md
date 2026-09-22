@@ -47,10 +47,19 @@ self-contained file that can be emailed.
   domain; upscaled beyond zoom 16). CARTO and Esri basemaps, which require a key or
   subscription for use in a product, are not offered. Switch from the sidebar or the map's
   layer control.
-- **Exhibit**: *Print exhibit* reflows the page into a 17 x 11 in landscape layout with a
-  CBRE-green header (editable title and subtitle), the map, legend, the numbered table
-  (split into columns for long lists), disclaimer, and wordmark. Use the browser's *Save as
-  PDF*.
+- **Exhibit**: *Print Exhibit* reflows the page into a 17 x 11 in landscape layout with a
+  CBRE-green header (CBRE and MultiCare logos, editable title and subtitle), the map, legend,
+  the numbered table (split into columns for long lists), disclaimer, and the logos again in
+  the footer. Use the browser's *Save as PDF*.
+- **Logos**: the header and the exhibit carry the official CBRE wordmark
+  (`assets/cbre-logo-white.png` on green, `assets/cbre-logo-green.png` on white) with the
+  MultiCare mark beside it. `assets/multicare-logo-white.svg` (green bars) and
+  `assets/multicare-logo.svg` (white footer) are placeholder wordmarks: replace them with the
+  official MultiCare artwork under the same file names and rebuild (`npm run build:single`
+  inlines every file in `assets/` into the standalone page).
+- **Placing the pin**: search an address, use *Drop pin on map* and click, or drag the pin
+  icon beside that button onto the map (it can be dropped on parcels too). The placed pin
+  is draggable.
 - **Sharing**: the URL hash carries the pin and radius, so a link reproduces the study.
 - **Data-source transparency**: the sidebar lists each service queried, whether it
   responded, how many records it returned, and exactly which source field feeds each column.

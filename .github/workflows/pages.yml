@@ -32,7 +32,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p site
-          cp -r index.html css js data vendor site/
+          cp -r index.html assets css js data vendor site/
           cp dist/index.html site/standalone.html
       - name: Build Pierce County assessor extract (legal owner, sales, values)
         # The county's weekly bulk files are fetched from GitHub's runners into a scratch

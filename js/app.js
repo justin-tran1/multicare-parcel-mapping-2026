@@ -452,7 +452,7 @@ async function setPin(pin, { reverse = false, fit = true } = {}) {
 function updatePinInfo() {
   const p = state.pin;
   if (!p) {
-    $('#pin-info').textContent = 'No pin yet. Search an address or choose “Drop pin on map”, then click the map. The pin can be dragged.';
+    $('#pin-info').textContent = 'No pin yet. Search an address, choose “Drop pin on map” and click the map, or drag the pin icon onto the map. The pin can be dragged.';
     return;
   }
   $('#pin-info').innerHTML = `<strong>Pin:</strong> ${escapeHtml(p.label || '')} <span class="muted">(${p.lat.toFixed(6)}, ${p.lon.toFixed(6)})</span>`;
@@ -986,6 +986,56 @@ function wireControls() {
     printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || NOT_AVAILABLE}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
+  wirePinDrag();
+}
+
+// The sidebar pin can be dragged (HTML5 drag and drop) and dropped anywhere on the map,
+// including on parcels, labels and the existing pin; the drop point becomes the study centre.
+function wirePinDrag() {
+  const handle = $('#pin-handle');
+  const container = state.map.getContainer();
+  if (!handle || !container) return;
+  const TOKEN = 'parcel-radius-pin';
+  let dragging = false;
+  const reset = () => {
+    dragging = false;
+    document.body.classList.remove('dragging-pin');
+    container.classList.remove('drop-target');
+  };
+  handle.addEventListener('dragstart', (e) => {
+    dragging = true;
+    e.dataTransfer.setData('text/plain', TOKEN);
+    e.dataTransfer.effectAllowed = 'move';
+    if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(handle, handle.offsetWidth / 2, handle.offsetHeight);
+    document.body.classList.add('dragging-pin');
+  });
+  handle.addEventListener('dragend', reset);
+  // dataTransfer contents are unreadable until the drop, so the drag-over checks rely on the flag
+  // (same document) or on a plain-text payload (Playwright and other drivers).
+  const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes('text/plain');
+  container.addEventListener('dragenter', (e) => {
+    if (!mayAccept(e)) return;
+    e.preventDefault();
+    container.classList.add('drop-target');
+  });
+  container.addEventListener('dragover', (e) => {
+    if (!mayAccept(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  container.addEventListener('dragleave', (e) => {
+    if (!container.contains(e.relatedTarget)) container.classList.remove('drop-target');
+  });
+  container.addEventListener('drop', (e) => {
+    const isPin = dragging || e.dataTransfer?.getData('text/plain') === TOKEN;
+    reset();
+    if (!isPin) return;
+    e.preventDefault();
+    const ll = state.map.mouseEventToLatLng(e);
+    setDropMode(false);
+    state.map.closePopup();
+    setPin({ lat: ll.lat, lon: ll.lng, label: '' }, { reverse: true });
+  });
 }
 
 // ---------------------------------------------------------------------------

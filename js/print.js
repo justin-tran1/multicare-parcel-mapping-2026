@@ -1,7 +1,6 @@
 // Print exhibit: reflows the page into a tabloid-landscape layout (header bar, map,
 // numbered table, legend, disclaimer), waits for basemap tiles, then opens the print dialog.
 import { DISCLAIMER } from './config.js';
-import { escapeHtml } from './format.js';
 
 function waitForTiles(map, timeoutMs = 4000) {
   return new Promise((resolve) => {
@@ -96,8 +95,8 @@ export async function printExhibit({ map, title, subtitle, bounds, footerLeft = 
   document.getElementById('exhibit-title').textContent = title || 'Parcel radius study';
   document.getElementById('exhibit-subtitle').textContent = subtitle || '';
   const stamp = new Date().toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
-  document.getElementById('exhibit-footer').innerHTML =
-    `<div class="disclaimer">${escapeHtml(DISCLAIMER)} ${escapeHtml(footerLeft)} Generated ${escapeHtml(stamp)}.</div><div class="cbre">CBRE</div>`;
+  // The footer's logo marks are static markup in index.html; only the disclaimer text changes.
+  document.getElementById('exhibit-disclaimer').textContent = `${DISCLAIMER} ${footerLeft} Generated ${stamp}.`;
 
   const results = document.getElementById('results');
   const wasCollapsed = results.classList.contains('collapsed');

@@ -162,6 +162,63 @@ test.describe('radius study', () => {
     await expect(page.locator('.leaflet-popup .popup')).toBeVisible();
   });
 
+  test('the sidebar pin can be dragged and dropped onto the map, landing on a parcel', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto('/');
+    await page.evaluate(({ lat, lon }) => window.__parcelApp.state.map.setView([lat, lon], 17), ALLENMORE);
+    await page.waitForFunction(() => window.__parcelApp.state.view.records.size > 0, null, { timeout: 20000 });
+    await expect(page.locator('#pin-handle')).toHaveAttribute('draggable', 'true');
+    const box = await page.locator('#map').boundingBox();
+    // the map centre is covered by the MultiCare parcel polygon
+    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: { x: box.width / 2, y: box.height / 2 } });
+    await expect(page.locator('.pin-icon')).toHaveCount(1, { timeout: 10000 });
+    const pin = await page.evaluate(() => window.__parcelApp.state.pin);
+    expect(Math.abs(pin.lat - ALLENMORE.lat)).toBeLessThan(0.0005);
+    expect(Math.abs(pin.lon - ALLENMORE.lon)).toBeLessThan(0.0005);
+    await expect(page.locator('table.parcels tbody tr').first()).toContainText('MULTICARE HEALTH SYSTEMS', { timeout: 20000 });
+    await expect(page.locator('#map')).not.toHaveClass(/drop-target/);
+    await expect(page.locator('body')).not.toHaveClass(/dragging-pin/);
+    await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+    // dropping the pin again moves it and re-runs the study around the new centre
+    await page.evaluate(() => { window.__parcelApp.state.study.projector.__stale = true; });
+    await page.dragAndDrop('#pin-handle', '#map', { targetPosition: { x: box.width / 2 + 120, y: box.height / 2 + 80 } });
+    await page.waitForFunction(() => { const s = window.__parcelApp.state.study; return s.projector && !s.projector.__stale; }, null, { timeout: 20000 });
+    const moved = await page.evaluate(() => window.__parcelApp.state.pin);
+    expect(Math.abs(moved.lat - pin.lat) + Math.abs(moved.lon - pin.lon)).toBeGreaterThan(1e-5);
+    await expect(page.locator('.pin-icon')).toHaveCount(1);
+  });
+
+  test('the header and the exhibit carry the CBRE logo with the MultiCare mark; the print button reads Print Exhibit', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    await page.goto(hashFor());
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('#btn-print')).toHaveText('Print Exhibit');
+    const loaded = (sel) => page.locator(sel).evaluateAll((imgs) => imgs.map((i) => i.complete && i.naturalWidth > 0));
+    await expect(page.locator('.topbar .brand img.logo-cbre')).toBeVisible();
+    await expect(page.locator('.topbar .brand img.logo-cbre')).toHaveAttribute('src', /assets\/cbre-logo-white\.png$/);
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toBeVisible();
+    await expect(page.locator('.topbar .brand img.logo-multicare')).toHaveAttribute('alt', 'MultiCare');
+    expect(await loaded('.topbar .brand img')).toEqual([true, true]);
+    // print layout: logos top-left of the green header and again in the footer beside the disclaimer
+    await page.evaluate(() => { window.print = () => {}; });
+    await page.setViewportSize({ width: 1700, height: 1100 });
+    await page.click('#btn-print');
+    await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+    const header = page.locator('.exhibit-header');
+    await expect(header.locator('.exhibit-logos img.logo-cbre')).toBeVisible();
+    await expect(header.locator('.exhibit-logos img.logo-multicare')).toBeVisible();
+    const logos = await header.locator('.exhibit-logos').boundingBox();
+    const title = await header.locator('#exhibit-title').boundingBox();
+    expect(logos.x).toBeLessThan(title.x); // logos sit left of the title
+    await expect(page.locator('#exhibit-footer .exhibit-marks img.logo-cbre')).toHaveAttribute('src', /assets\/cbre-logo-green\.png$/);
+    await expect(page.locator('#exhibit-footer .exhibit-marks img.logo-cbre')).toBeVisible();
+    await expect(page.locator('#exhibit-footer .exhibit-marks img.logo-multicare')).toBeVisible();
+    await expect(page.locator('#exhibit-disclaimer')).toContainText('CBRE, Inc. All rights reserved');
+    await expect(page.locator('#exhibit-disclaimer')).toContainText('Generated');
+    expect(await loaded('.exhibit-header img, #exhibit-footer img')).toEqual([true, true, true, true]);
+    await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+  });
+
   test('coordinates entered as an address place the pin; clear removes everything', async ({ page }) => {
     await installMockArcGIS(page, { parcels });
     await page.goto('/');

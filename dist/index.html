@@ -721,7 +721,13 @@ code { font-size: 12px; background: #eef1f1; padding: 0 3px; border-radius: 3px;
   gap: 14px;
   padding: 0 14px;
 }
-.brand { font-weight: 800; letter-spacing: 0.06em; font-size: 20px; }
+/* Logos: the official CBRE wordmark (assets/cbre-logo-white.png on green bars,
+   assets/cbre-logo-green.png on white) beside the MultiCare mark (assets/multicare-logo*.svg,
+   a placeholder wordmark until the official artwork replaces the files). */
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.logo { display: block; width: auto; }
+.brand .logo { height: 22px; }
+.brand-divider { display: inline-block; width: 1px; height: 24px; background: rgba(255, 255, 255, 0.45); flex: none; }
 .topbar-title { font-size: 16px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-actions { display: flex; gap: 8px; }
 .icon-btn {
@@ -778,6 +784,15 @@ label.check { display: flex; align-items: center; gap: 6px; margin: 5px 0; curso
 label.check input { accent-color: var(--cbre-green); }
 label.check.small { font-size: 12px; margin: 0; }
 .hint { color: var(--text-muted); font-size: 12px; margin: 6px 0 0; }
+/* Draggable pin: drag it from the sidebar and drop it on the map to place the study centre. */
+.pin-handle { display: inline-flex; align-items: center; cursor: grab; padding: 0 2px; line-height: 0; }
+.pin-handle:active { cursor: grabbing; }
+.pin-handle svg { display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25)); }
+body.dragging-pin .map { cursor: copy; }
+.map.drop-target::after {
+  content: ''; position: absolute; inset: 0; z-index: 1200; pointer-events: none;
+  border: 3px dashed var(--accent-green); background: rgba(23, 232, 143, 0.06);
+}
 .muted { color: var(--text-muted); font-size: 12px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 6px; }
 .grid2 label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
@@ -906,10 +921,14 @@ body.print-mode .main {
   width: 16.2in; height: 10.2in; margin: 0 auto; background: #fff; border: 1px solid var(--light-grey);
 }
 body.print-mode .exhibit-header {
-  grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 18px;
   background: var(--cbre-green); color: #fff; padding: 10px 20px; min-height: 0.85in;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-body.print-mode .exhibit-title { font-size: 30px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
+body.print-mode .exhibit-logos { display: flex; align-items: center; gap: 16px; flex: none; padding-right: 18px; border-right: 1px solid rgba(255, 255, 255, 0.45); }
+body.print-mode .exhibit-logos .logo { height: 0.36in; }
+body.print-mode .exhibit-logos .brand-divider { height: 0.36in; }
+body.print-mode .exhibit-title { flex: 1; min-width: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.print-mode .exhibit-subtitle { font-size: 16px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 body.print-mode .map-wrap { grid-area: map; min-height: 0; }
 body.print-mode .results { grid-area: table; max-height: none; border-top: 0; border-left: 1px solid var(--light-grey); display: block; overflow: hidden; padding: 4px 6px; }
@@ -933,7 +952,9 @@ body.print-mode .exhibit-footer {
   grid-area: foot; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
   padding: 6px 14px; font-size: 7pt; color: var(--text-muted); border-top: 1px solid var(--light-grey);
 }
-body.print-mode .exhibit-footer .cbre { font-size: 22pt; font-weight: 800; color: var(--cbre-green); letter-spacing: 0.06em; }
+body.print-mode .exhibit-footer .exhibit-marks { display: flex; align-items: center; gap: 14px; flex: none; }
+body.print-mode .exhibit-footer .logo { height: 0.3in; }
+body.print-mode .exhibit-footer .brand-divider { height: 0.3in; background: var(--light-grey); }
 body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
 @media print {
@@ -947,11 +968,15 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 <body>
   <header class="topbar" role="banner">
     <button class="icon-btn sidebar-toggle" id="btn-sidebar" type="button" aria-label="Toggle controls" aria-expanded="true">&#9776;</button>
-    <div class="brand" aria-label="CBRE">CBRE</div>
+    <div class="brand">
+      <img class="logo logo-cbre" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVIAAABVCAYAAAAbp2zjAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyVpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDYuMC1jMDA1IDc5LjE2NDU5MCwgMjAyMC8xMi8wOS0xMTo1Nzo0NCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDIyLjEgKE1hY2ludG9zaCkiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6NzE1N0U2QTAwNUQ4MTFFQzk1NjNFMzI1RjBDM0VDMUIiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6NzE1N0U2QTEwNUQ4MTFFQzk1NjNFMzI1RjBDM0VDMUIiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDo3MTU3RTY5RTA1RDgxMUVDOTU2M0UzMjVGMEMzRUMxQiIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDo3MTU3RTY5RjA1RDgxMUVDOTU2M0UzMjVGMEMzRUMxQiIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PmK5MvsAAAfoSURBVHja7J3t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" alt="CBRE" width="338" height="85">
+      <span class="brand-divider" aria-hidden="true"></span>
+      <img class="logo logo-multicare" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCEtLSBQbGFjZWhvbGRlciB3b3JkbWFyayBmb3IgdGhlIE11bHRpQ2FyZSBtYXJrIG9uIENCUkUtZ3JlZW4gYmFycy4gUmVwbGFjZSB0aGlzIGZpbGUgd2l0aCB0aGUKICAgICBvZmZpY2lhbCBNdWx0aUNhcmUgbG9nbyBhcnR3b3JrICh3aGl0ZSAvIHJldmVyc2VkIHZlcnNpb24pIHN1cHBsaWVkIGJ5IE11bHRpQ2FyZTsga2VlcCB0aGUKICAgICBmaWxlIG5hbWUgc28gdGhlIGhlYWRlciwgdGhlIGV4aGliaXQgYW5kIHRoZSBzdGFuZGFsb25lIGJ1aWxkIHBpY2sgaXQgdXAuIC0tPgo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDQ3MCA4NSIgd2lkdGg9IjQ3MCIgaGVpZ2h0PSI4NSIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJNdWx0aUNhcmUiPgogIDx0ZXh0IHg9IjAiIHk9Ijc4IiBmb250LWZhbWlseT0iQ2FsaWJyZSwgSW50ZXIsICdTZWdvZSBVSScsICdIZWx2ZXRpY2EgTmV1ZScsIEFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9Ijk2IiBmb250LXdlaWdodD0iNzAwIiBmaWxsPSIjRkZGRkZGIiB0ZXh0TGVuZ3RoPSI0NzAiIGxlbmd0aEFkanVzdD0ic3BhY2luZ0FuZEdseXBocyI+TXVsdGlDYXJlPC90ZXh0Pgo8L3N2Zz4K" alt="MultiCare" width="470" height="85">
+    </div>
     <h1 class="topbar-title">Washington Parcel Radius Map</h1>
     <div class="topbar-actions">
       <button class="btn btn-ghost" id="btn-export" type="button" disabled title="Download the parcel table as CSV">Export CSV</button>
-      <button class="btn btn-accent" id="btn-print" type="button" disabled title="Lay out the map and table as a printable exhibit">Print exhibit</button>
+      <button class="btn btn-accent" id="btn-print" type="button" disabled title="Lay out the map and table as a printable exhibit">Print Exhibit</button>
     </div>
   </header>
 
@@ -968,9 +993,10 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         <ul id="geocode-results" class="geocode-results" hidden></ul>
         <div class="row">
           <button class="btn btn-outline" type="button" id="btn-drop" aria-pressed="false">Drop pin on map</button>
+          <span class="pin-handle" id="pin-handle" draggable="true" title="Drag this pin onto the map" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40" width="24" height="32" focusable="false"><path d="M15 1C7.3 1 1 7.2 1 14.9 1 25 15 39 15 39s14-14 14-24.1C29 7.2 22.7 1 15 1z" fill="#003F2D" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5.5" fill="#17E88F"/></svg></span>
           <button class="btn btn-outline" type="button" id="btn-clear" disabled>Clear</button>
         </div>
-        <p class="hint" id="pin-info">No pin yet. Search an address or choose “Drop pin on map”, then click the map. The pin can be dragged.</p>
+        <p class="hint" id="pin-info">No pin yet. Search an address, choose “Drop pin on map” and click the map, or drag the pin icon onto the map. The pin can be dragged.</p>
       </section>
 
       <section class="panel" aria-labelledby="h-ring">
@@ -1059,6 +1085,11 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
 
     <main class="main" id="main">
       <div class="exhibit-header" aria-hidden="true">
+        <div class="exhibit-logos">
+          <img class="logo logo-cbre" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVIAAABVCAYAAAAbp2zjAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyVpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDYuMC1jMDA1IDc5LjE2NDU5MCwgMjAyMC8xMi8wOS0xMTo1Nzo0NCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDIyLjEgKE1hY2ludG9zaCkiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6NzE1N0U2QTAwNUQ4MTFFQzk1NjNFMzI1RjBDM0VDMUIiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6NzE1N0U2QTEwNUQ4MTFFQzk1NjNFMzI1RjBDM0VDMUIiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDo3MTU3RTY5RTA1RDgxMUVDOTU2M0UzMjVGMEMzRUMxQiIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDo3MTU3RTY5RjA1RDgxMUVDOTU2M0UzMjVGMEMzRUMxQiIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PmK5MvsAAAfoSURBVHja7J3t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" alt="CBRE" width="338" height="85">
+          <span class="brand-divider"></span>
+          <img class="logo logo-multicare" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCEtLSBQbGFjZWhvbGRlciB3b3JkbWFyayBmb3IgdGhlIE11bHRpQ2FyZSBtYXJrIG9uIENCUkUtZ3JlZW4gYmFycy4gUmVwbGFjZSB0aGlzIGZpbGUgd2l0aCB0aGUKICAgICBvZmZpY2lhbCBNdWx0aUNhcmUgbG9nbyBhcnR3b3JrICh3aGl0ZSAvIHJldmVyc2VkIHZlcnNpb24pIHN1cHBsaWVkIGJ5IE11bHRpQ2FyZTsga2VlcCB0aGUKICAgICBmaWxlIG5hbWUgc28gdGhlIGhlYWRlciwgdGhlIGV4aGliaXQgYW5kIHRoZSBzdGFuZGFsb25lIGJ1aWxkIHBpY2sgaXQgdXAuIC0tPgo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDQ3MCA4NSIgd2lkdGg9IjQ3MCIgaGVpZ2h0PSI4NSIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJNdWx0aUNhcmUiPgogIDx0ZXh0IHg9IjAiIHk9Ijc4IiBmb250LWZhbWlseT0iQ2FsaWJyZSwgSW50ZXIsICdTZWdvZSBVSScsICdIZWx2ZXRpY2EgTmV1ZScsIEFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9Ijk2IiBmb250LXdlaWdodD0iNzAwIiBmaWxsPSIjRkZGRkZGIiB0ZXh0TGVuZ3RoPSI0NzAiIGxlbmd0aEFkanVzdD0ic3BhY2luZ0FuZEdseXBocyI+TXVsdGlDYXJlPC90ZXh0Pgo8L3N2Zz4K" alt="MultiCare" width="470" height="85">
+        </div>
         <div class="exhibit-title" id="exhibit-title">Parcel radius study</div>
         <div class="exhibit-subtitle" id="exhibit-subtitle"></div>
       </div>
@@ -1083,7 +1114,14 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         </div>
         <div class="table-wrap" id="table-wrap"></div>
       </section>
-      <div class="exhibit-footer" aria-hidden="true" id="exhibit-footer"></div>
+      <div class="exhibit-footer" aria-hidden="true" id="exhibit-footer">
+        <div class="disclaimer" id="exhibit-disclaimer"></div>
+        <div class="exhibit-marks">
+          <img class="logo logo-cbre" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVIAAABVCAYAAAAbp2zjAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyVpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDYuMC1jMDA1IDc5LjE2NDU5MCwgMjAyMC8xMi8wOS0xMTo1Nzo0NCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDIyLjEgKE1hY2ludG9zaCkiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6MjNGNDBCMzcwNUVGMTFFQzk1NjNFMzI1RjBDM0VDMUIiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6MjNGNDBCMzgwNUVGMTFFQzk1NjNFMzI1RjBDM0VDMUIiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDo3MTU3RTZBMjA1RDgxMUVDOTU2M0UzMjVGMEMzRUMxQiIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDoyM0Y0MEIzNjA1RUYxMUVDOTU2M0UzMjVGMEMzRUMxQiIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PofiCTcAAAfwSURBVHja7J3t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" alt="CBRE" width="338" height="85">
+          <span class="brand-divider"></span>
+          <img class="logo logo-multicare" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCEtLSBQbGFjZWhvbGRlciB3b3JkbWFyayBmb3IgdGhlIE11bHRpQ2FyZSBtYXJrIG9uIHdoaXRlIChleGhpYml0IGZvb3RlcikuIFJlcGxhY2UgdGhpcyBmaWxlCiAgICAgd2l0aCB0aGUgb2ZmaWNpYWwgTXVsdGlDYXJlIGxvZ28gYXJ0d29yayAoZnVsbC1jb2xvdXIgdmVyc2lvbikgc3VwcGxpZWQgYnkgTXVsdGlDYXJlOyBrZWVwCiAgICAgdGhlIGZpbGUgbmFtZSBzbyB0aGUgZXhoaWJpdCBhbmQgdGhlIHN0YW5kYWxvbmUgYnVpbGQgcGljayBpdCB1cC4gLS0+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB2aWV3Qm94PSIwIDAgNDcwIDg1IiB3aWR0aD0iNDcwIiBoZWlnaHQ9Ijg1IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpQ2FyZSI+CiAgPHRleHQgeD0iMCIgeT0iNzgiIGZvbnQtZmFtaWx5PSJDYWxpYnJlLCBJbnRlciwgJ1NlZ29lIFVJJywgJ0hlbHZldGljYSBOZXVlJywgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iOTYiIGZvbnQtd2VpZ2h0PSI3MDAiIGZpbGw9IiMzMzMzMzMiIHRleHRMZW5ndGg9IjQ3MCIgbGVuZ3RoQWRqdXN0PSJzcGFjaW5nQW5kR2x5cGhzIj5NdWx0aUNhcmU8L3RleHQ+Cjwvc3ZnPgo=" alt="MultiCare" width="470" height="85">
+        </div>
+      </div>
     </main>
   </div>
 
@@ -4995,7 +5033,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     document.getElementById("exhibit-title").textContent = title || "Parcel radius study";
     document.getElementById("exhibit-subtitle").textContent = subtitle || "";
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" });
-    document.getElementById("exhibit-footer").innerHTML = `<div class="disclaimer">${escapeHtml(DISCLAIMER)} ${escapeHtml(footerLeft)} Generated ${escapeHtml(stamp)}.</div><div class="cbre">CBRE</div>`;
+    document.getElementById("exhibit-disclaimer").textContent = `${DISCLAIMER} ${footerLeft} Generated ${stamp}.`;
     const results = document.getElementById("results");
     const wasCollapsed = results.classList.contains("collapsed");
     results.classList.remove("collapsed");
@@ -5409,7 +5447,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   function updatePinInfo() {
     const p = state.pin;
     if (!p) {
-      $("#pin-info").textContent = "No pin yet. Search an address or choose \u201CDrop pin on map\u201D, then click the map. The pin can be dragged.";
+      $("#pin-info").textContent = "No pin yet. Search an address, choose \u201CDrop pin on map\u201D and click the map, or drag the pin icon onto the map. The pin can be dragged.";
       return;
     }
     $("#pin-info").innerHTML = `<strong>Pin:</strong> ${escapeHtml(p.label || "")} <span class="muted">(${p.lat.toFixed(6)}, ${p.lon.toFixed(6)})</span>`;
@@ -5922,6 +5960,51 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || NOT_AVAILABLE}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}` });
     });
     window.addEventListener("resize", () => state.map.invalidateSize());
+    wirePinDrag();
+  }
+  function wirePinDrag() {
+    const handle = $("#pin-handle");
+    const container = state.map.getContainer();
+    if (!handle || !container) return;
+    const TOKEN = "parcel-radius-pin";
+    let dragging = false;
+    const reset = () => {
+      dragging = false;
+      document.body.classList.remove("dragging-pin");
+      container.classList.remove("drop-target");
+    };
+    handle.addEventListener("dragstart", (e) => {
+      dragging = true;
+      e.dataTransfer.setData("text/plain", TOKEN);
+      e.dataTransfer.effectAllowed = "move";
+      if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(handle, handle.offsetWidth / 2, handle.offsetHeight);
+      document.body.classList.add("dragging-pin");
+    });
+    handle.addEventListener("dragend", reset);
+    const mayAccept = (e) => dragging || Array.from(e.dataTransfer?.types || []).includes("text/plain");
+    container.addEventListener("dragenter", (e) => {
+      if (!mayAccept(e)) return;
+      e.preventDefault();
+      container.classList.add("drop-target");
+    });
+    container.addEventListener("dragover", (e) => {
+      if (!mayAccept(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    container.addEventListener("dragleave", (e) => {
+      if (!container.contains(e.relatedTarget)) container.classList.remove("drop-target");
+    });
+    container.addEventListener("drop", (e) => {
+      const isPin = dragging || e.dataTransfer?.getData("text/plain") === TOKEN;
+      reset();
+      if (!isPin) return;
+      e.preventDefault();
+      const ll = state.map.mouseEventToLatLng(e);
+      setDropMode(false);
+      state.map.closePopup();
+      setPin({ lat: ll.lat, lon: ll.lng, label: "" }, { reverse: true });
+    });
   }
   async function loadLocations() {
     try {
