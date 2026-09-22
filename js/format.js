@@ -33,16 +33,20 @@ export function titleCaseOwner(s) {
 /** Placeholder for a field the source does not carry for this parcel. */
 export const NOT_AVAILABLE = 'N/A';
 
-// Address tokens kept exactly as published: directionals and bounds, state and route codes,
-// roman numerals, and the "XXX" house-number prefix Pierce County uses for GIS-estimated
-// situs addresses.
-const ADDRESS_KEEP_UPPER = new Set(['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW', 'NB', 'SB', 'EB', 'WB', 'WA', 'US', 'SR', 'PO', 'XXX', 'II', 'III', 'IV']);
+// Address words kept in capitals: directionals and bounds, state and route codes, military
+// installations, roman numerals, and the "XXX" house-number prefix Pierce County uses for
+// GIS-estimated situs addresses.
+const ADDRESS_KEEP_UPPER = new Set(['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW', 'NB', 'SB', 'EB', 'WB', 'WA', 'US', 'SR', 'PO', 'JBLM', 'AFB', 'XXX', 'II', 'III', 'IV']);
+// Place names whose official spelling has an internal capital.
+const ADDRESS_SPELLINGS = { SEATAC: 'SeaTac', DUPONT: 'DuPont' };
+const ORDINAL_SUFFIX = /^(ST|ND|RD|TH)$/i;
 
 /**
  * Assessor rolls publish situs addresses in capitals ("1901 S UNION AVE"); the table shows
- * them cased like a mailing label ("1901 S Union Ave"). Numbers, unit designators such as
- * "#200" or "200A" and hyphenated ranges are kept as published; ordinal suffixes are lowered
- * ("112TH" -> "112th"); directionals and the state code stay upper case.
+ * them cased like a mailing label ("1901 S Union Ave"). Numbers, punctuation and single
+ * letters (unit "200A", "Apt B") are kept as published; ordinal suffixes are lowered
+ * ("112TH" -> "112th"); directionals and the state code stay upper case; "O'BRIEN",
+ * "KING'S", "MCKINLEY" and "SEATAC" become O'Brien, King's, McKinley and SeaTac.
  */
 export function formatAddress(s) {
   const text = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -50,16 +54,27 @@ export function formatAddress(s) {
   return text.split(' ').map(caseAddressWord).join(' ');
 }
 
+// Works on runs of letters, digits and other characters so that designators glued to
+// numbers or punctuation are cased too: "STE#200A" -> Ste, #, 200, A; "O'BRIEN" -> O, ', BRIEN.
 function caseAddressWord(word) {
-  if (/\d/.test(word)) return word.replace(/^(\d+)(ST|ND|RD|TH)$/i, (_, n, suffix) => n + suffix.toLowerCase());
-  return word
-    .split(/([-/])/)
-    .map((part) => {
-      if (!part || /^[-/]$/.test(part)) return part;
-      if (ADDRESS_KEEP_UPPER.has(part.replace(/[^A-Za-z]/g, '').toUpperCase())) return part.toUpperCase();
-      let out = part.toLowerCase().replace(/(^|[^a-z])([a-z])/g, (m, before, ch) => before + ch.toUpperCase());
-      if (/^Mc[a-z]/.test(out)) out = `Mc${out[2].toUpperCase()}${out.slice(3)}`;
-      return out;
+  const runs = word.match(/\p{L}+|\d+|[^\p{L}\d]+/gu) || [];
+  return runs
+    .map((run, i) => {
+      if (!/\p{L}/u.test(run)) return run;
+      const upper = run.toUpperCase();
+      const prev = runs[i - 1] ?? '';
+      if (/^\d+$/.test(prev) && ORDINAL_SUFFIX.test(run)) return run.toLowerCase();
+      if (ADDRESS_SPELLINGS[upper]) return ADDRESS_SPELLINGS[upper];
+      if ([...run].length === 1) {
+        // a lone S after an apostrophe inside a word is a possessive (KING'S), not an initial (O'BRIEN)
+        const possessive = upper === 'S' && /^['’]$/.test(prev) && i >= 2 && /\p{L}/u.test(runs[i - 2]);
+        return possessive ? 's' : upper;
+      }
+      if (ADDRESS_KEEP_UPPER.has(upper)) return upper;
+      const chars = [...run.toLowerCase()];
+      chars[0] = chars[0].toUpperCase();
+      if (chars[0] === 'M' && chars[1] === 'c' && chars.length > 2) chars[2] = chars[2].toUpperCase(); // McKinley
+      return chars.join('');
     })
     .join('');
 }

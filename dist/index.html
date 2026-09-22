@@ -4627,20 +4627,31 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
   }
   var NOT_AVAILABLE = "N/A";
-  var ADDRESS_KEEP_UPPER = /* @__PURE__ */ new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW", "NB", "SB", "EB", "WB", "WA", "US", "SR", "PO", "XXX", "II", "III", "IV"]);
+  var ADDRESS_KEEP_UPPER = /* @__PURE__ */ new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW", "NB", "SB", "EB", "WB", "WA", "US", "SR", "PO", "JBLM", "AFB", "XXX", "II", "III", "IV"]);
+  var ADDRESS_SPELLINGS = { SEATAC: "SeaTac", DUPONT: "DuPont" };
+  var ORDINAL_SUFFIX = /^(ST|ND|RD|TH)$/i;
   function formatAddress(s) {
     const text = String(s ?? "").replace(/\s+/g, " ").trim();
     if (!text) return "";
     return text.split(" ").map(caseAddressWord).join(" ");
   }
   function caseAddressWord(word) {
-    if (/\d/.test(word)) return word.replace(/^(\d+)(ST|ND|RD|TH)$/i, (_, n, suffix) => n + suffix.toLowerCase());
-    return word.split(/([-/])/).map((part) => {
-      if (!part || /^[-/]$/.test(part)) return part;
-      if (ADDRESS_KEEP_UPPER.has(part.replace(/[^A-Za-z]/g, "").toUpperCase())) return part.toUpperCase();
-      let out = part.toLowerCase().replace(/(^|[^a-z])([a-z])/g, (m, before, ch) => before + ch.toUpperCase());
-      if (/^Mc[a-z]/.test(out)) out = `Mc${out[2].toUpperCase()}${out.slice(3)}`;
-      return out;
+    const runs = word.match(/\p{L}+|\d+|[^\p{L}\d]+/gu) || [];
+    return runs.map((run, i) => {
+      if (!/\p{L}/u.test(run)) return run;
+      const upper = run.toUpperCase();
+      const prev = runs[i - 1] ?? "";
+      if (/^\d+$/.test(prev) && ORDINAL_SUFFIX.test(run)) return run.toLowerCase();
+      if (ADDRESS_SPELLINGS[upper]) return ADDRESS_SPELLINGS[upper];
+      if ([...run].length === 1) {
+        const possessive = upper === "S" && /^['’]$/.test(prev) && i >= 2 && /\p{L}/u.test(runs[i - 2]);
+        return possessive ? "s" : upper;
+      }
+      if (ADDRESS_KEEP_UPPER.has(upper)) return upper;
+      const chars = [...run.toLowerCase()];
+      chars[0] = chars[0].toUpperCase();
+      if (chars[0] === "M" && chars[1] === "c" && chars.length > 2) chars[2] = chars[2].toUpperCase();
+      return chars.join("");
     }).join("");
   }
   function csvCell(v) {
@@ -4783,7 +4794,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           }
         );
       }
-      if (this.optional.distance) cols.push({ key: "distance", label: "Distance", cls: "num", value: (r) => r.distanceM !== null ? Number(r.distanceM.toFixed(1)) : "", html: (r) => r.distanceM === null || r.distanceM === void 0 ? NA : r.distanceM === 0 ? "Contains pin" : formatDistance(r.distanceM, this.unit), sort: (a, b) => num(a.distanceM, b.distanceM) });
+      if (this.optional.distance) cols.push({ key: "distance", label: "Distance", cls: "num", value: (r) => r.distanceM !== null && r.distanceM !== void 0 ? Number(r.distanceM.toFixed(1)) : "", html: (r) => r.distanceM === null || r.distanceM === void 0 ? NA : r.distanceM === 0 ? "Contains pin" : formatDistance(r.distanceM, this.unit), sort: (a, b) => num(a.distanceM, b.distanceM) });
       return cols;
     }
     setRecords(records, { unit } = {}) {
