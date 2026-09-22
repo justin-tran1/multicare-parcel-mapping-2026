@@ -3,18 +3,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { decodePng, encodePng, reverse, trim } from '../../scripts/reverse-logo.mjs';
+import { decodePng, reverse, trim } from '../../scripts/reverse-logo.mjs';
 
 const asset = async (name) => decodePng(await readFile(new URL(`../../assets/${name}`, import.meta.url)));
 
 test('the reversed MultiCare mark is the current colour mark, in white', async () => {
   const colour = await asset('multicare-logo.png');
   const white = await asset('multicare-logo-white.png');
-  assert.equal(white.width, colour.width);
-  assert.equal(white.height, colour.height);
-  const expected = encodePng(reverse(colour));
-  const actual = await readFile(new URL('../../assets/multicare-logo-white.png', import.meta.url));
-  assert.ok(expected.equals(actual), 'run node scripts/reverse-logo.mjs assets/multicare-logo.png');
+  const expected = reverse(colour);
+  // Pixels, not file bytes: the assets may be re-compressed or optimised, but they must stay
+  // the same artwork. A stale reversed file fails here.
+  assert.equal(white.width, expected.width);
+  assert.equal(white.height, expected.height);
+  assert.ok(white.data.equals(expected.data), 'run node scripts/reverse-logo.mjs assets/multicare-logo.png');
 });
 
 test('both marks are trimmed to the artwork and carry no opaque background', async () => {

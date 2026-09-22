@@ -14,6 +14,8 @@
 // PNG support here is deliberately minimal: 8-bit non-interlaced images, which is what logo
 // artwork is. It avoids a dependency for something run only when the artwork changes.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 const CRC_TABLE = (() => {
@@ -186,9 +188,17 @@ export function reverse(img) {
   return { width, height, data: out };
 }
 
-const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const [source = 'assets/multicare-logo.png', colourOut = source, reversedOut = source.replace(/\.png$/, '-white.png')] = process.argv.slice(2);
+  const [source = 'assets/multicare-logo.png', colourOut = source, reversedOut = `${colourOut.replace(/\.png$/i, '')}-white.png`] = process.argv.slice(2);
+  // The colour output may overwrite the source in place (that is how a mark is re-trimmed),
+  // but the reversed variant must never land on either, or the artwork is lost.
+  for (const [name, path] of [['the colour output', colourOut], ['the source', source]]) {
+    if (resolve(reversedOut) === resolve(path)) {
+      console.error(`refusing to write the reversed mark over ${name} (${path}); pass a different output path`);
+      process.exit(1);
+    }
+  }
   const trimmed = trim(decodePng(readFileSync(source)));
   writeFileSync(colourOut, encodePng(trimmed));
   writeFileSync(reversedOut, encodePng(reverse(trimmed)));
