@@ -320,7 +320,7 @@ test.describe('radius study', () => {
     await expect(page.locator('.topbar .brand img.logo-multicare')).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     // the page keeps its heading for assistive technology even where the bar has no room for it
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Washington Parcel Radius Map');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Washington Parcel Information Map');
     expect(await page.evaluate(() => getComputedStyle(document.querySelector('.topbar-title')).display)).not.toBe('none');
     // both marks are back on a wide bar
     await page.setViewportSize({ width: 1400, height: 900 });
