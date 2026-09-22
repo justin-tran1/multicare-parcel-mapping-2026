@@ -10,7 +10,7 @@ import { loadData } from './data.js';
 import { geocode, reverseGeocode } from './geocode.js';
 import { classifyParcel, DEFAULT_PATTERNS, parseUserPatterns } from './multicare.js';
 import { loadJSON, saveJSON } from './storage.js';
-import { escapeHtml, formatCurrency, formatAcres, downloadText, slugify } from './format.js';
+import { escapeHtml, formatCurrency, formatAcres, formatAddress, downloadText, slugify, NOT_AVAILABLE } from './format.js';
 import { ResultsTable, rowClass, valueNote, formatSaleDate } from './table.js';
 import { printExhibit } from './print.js';
 
@@ -292,15 +292,15 @@ function popupHtml(rec) {
   if (rec.businessName) rows.push(['Business on parcel', `${escapeHtml(rec.businessName)} ${muted('(occupant per assessor, not ownership)')}`]);
   rows.push(
     ['Parcel #', escapeHtml(rec.parcelId || '')],
-    ['Address', escapeHtml([rec.situs, rec.city].filter(Boolean).join(', '))],
-    [rec.valueKind === 'taxable' ? 'Taxable value' : 'Value', rec.value !== null ? `${formatCurrency(rec.value)}${rec.valueKind !== 'taxable' ? ` <span class="muted">(${escapeHtml(valueNote(rec))})</span>` : ''}` : '<span class="muted">n/a</span>'],
+    ['Address', escapeHtml([formatAddress(rec.situs), formatAddress(rec.city)].filter(Boolean).join(', ')) || muted(NOT_AVAILABLE)],
+    [rec.valueKind === 'taxable' ? 'Taxable value' : 'Value', rec.value !== null ? `${formatCurrency(rec.value)}${rec.valueKind !== 'taxable' ? ` <span class="muted">(${escapeHtml(valueNote(rec))})</span>` : ''}` : muted(NOT_AVAILABLE)],
   );
   if (rec.landValue !== null && rec.landValue !== undefined) rows.push(['Land value', formatCurrency(rec.landValue)]);
   if (rec.improvementValue !== null && rec.improvementValue !== undefined) rows.push(['Improvements', formatCurrency(rec.improvementValue)]);
   if (rec.totalValue !== null && rec.totalValue !== undefined && rec.valueKind !== 'total') rows.push(['Total market value', formatCurrency(rec.totalValue)]);
   if (rec.exemption) rows.push(['Exemption', escapeHtml(rec.exemption)]);
   rows.push(['Land', `${formatAcres(rec.acres)} ac${rec.acresSource === 'gis' ? ' <span class="muted">(from geometry)</span>' : rec.acresSource === 'sqft' ? ' <span class="muted">(from lot sq ft)</span>' : ''}`]);
-  rows.push(['Use', escapeHtml(rec.useText || rec.useCode || 'n/a') + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : '')]);
+  rows.push(['Use', (rec.useText || rec.useCode ? escapeHtml(rec.useText || rec.useCode) : muted(NOT_AVAILABLE)) + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : '')]);
   rows.push(['Zoning', rec.zoning
     ? `<strong>${escapeHtml(rec.zoning)}</strong>${rec.zoningDescription ? ` ${escapeHtml(rec.zoningDescription)}` : ''} ${muted(`(${[rec.zoningJurisdiction, rec.zoningSource === 'assessor' ? 'assessor attribute' : rec.zoningSource].filter(Boolean).join(', ')})`)}`
     : muted('not available for this parcel')]);
@@ -318,7 +318,7 @@ function popupHtml(rec) {
   if (rec.distanceM !== null && rec.distanceM !== undefined) rows.push(['Distance', rec.distanceM === 0 ? 'contains the pin' : formatDistance(rec.distanceM, state.ring.unit)]);
   const marked = Boolean(markOf(rec));
   return `<div class="popup">
-    <h3>${rec.id ? `#${rec.id} ` : ''}${escapeHtml(rec.owner || rec.situs || rec.parcelId || 'Parcel')}${badges.join('')}</h3>
+    <h3>${rec.id ? `#${rec.id} ` : ''}${escapeHtml(rec.owner || formatAddress(rec.situs) || rec.parcelId || 'Parcel')}${badges.join('')}</h3>
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
     <div class="actions">
       ${rec.link ? `<a class="btn btn-outline small" href="${escapeHtml(rec.link)}" target="_blank" rel="noopener">Assessor record</a>` : ''}
@@ -983,7 +983,7 @@ function wireControls() {
     if (recs.some((r) => r.acresSource === 'gis')) notes.push('Some acreages are computed from the parcel polygon.');
     if (recs.some((r) => r.multicare?.deedDiffers)) notes.push('MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.');
     if (recs.some((r) => r.multicare?.inferred)) notes.push('Where the source withholds owner names, MultiCare ownership is inferred from a MultiCare business name on a tax-exempt parcel.');
-    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || 'n/a'}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
+    printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || NOT_AVAILABLE}${counties ? ` (${counties} County)` : ''}.${zoning ? ` Zoning: ${zoning}.` : ''}${notes.length ? ` ${notes.join(' ')}` : ''}` });
   });
   window.addEventListener('resize', () => state.map.invalidateSize());
 }

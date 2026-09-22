@@ -1213,6 +1213,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     mi: 1609.344
   };
   var UNIT_LABELS = { yd: "yards", ft: "feet", m: "meters", km: "kilometers", mi: "miles" };
+  var UNIT_LABELS_SINGULAR = { yd: "yard", ft: "foot", m: "meter", km: "kilometer", mi: "mile" };
   var SQM_PER_ACRE = 4046.8564224;
   var SQFT_PER_ACRE = 43560;
   var D2R = Math.PI / 180;
@@ -1444,8 +1445,12 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   }
   function formatDistance(meters, unit) {
     const v = fromMeters(meters, unit);
-    const digits = unit === "mi" || unit === "km" ? 2 : 0;
-    return `${v.toLocaleString(void 0, { maximumFractionDigits: digits })} ${unit}`;
+    const digits = unit === "mi" || unit === "km" ? v < 0.1 ? 3 : 2 : 0;
+    const fmt = (n) => n.toLocaleString("en-US", { maximumFractionDigits: digits });
+    let text = fmt(v);
+    if (v > 0 && Number(text.replace(/,/g, "")) === 0) text = `less than ${fmt(10 ** -digits)}`;
+    const one = text === "1" || text === "less than 1";
+    return `${text} ${one ? UNIT_LABELS_SINGULAR[unit] : UNIT_LABELS[unit]}`;
   }
 
   // js/arcgis.js
@@ -4621,6 +4626,23 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (n >= 100) return n.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
     return n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
   }
+  var NOT_AVAILABLE = "N/A";
+  var ADDRESS_KEEP_UPPER = /* @__PURE__ */ new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW", "NB", "SB", "EB", "WB", "WA", "US", "SR", "PO", "XXX", "II", "III", "IV"]);
+  function formatAddress(s) {
+    const text = String(s ?? "").replace(/\s+/g, " ").trim();
+    if (!text) return "";
+    return text.split(" ").map(caseAddressWord).join(" ");
+  }
+  function caseAddressWord(word) {
+    if (/\d/.test(word)) return word.replace(/^(\d+)(ST|ND|RD|TH)$/i, (_, n, suffix) => n + suffix.toLowerCase());
+    return word.split(/([-/])/).map((part) => {
+      if (!part || /^[-/]$/.test(part)) return part;
+      if (ADDRESS_KEEP_UPPER.has(part.replace(/[^A-Za-z]/g, "").toUpperCase())) return part.toUpperCase();
+      let out = part.toLowerCase().replace(/(^|[^a-z])([a-z])/g, (m, before, ch) => before + ch.toUpperCase());
+      if (/^Mc[a-z]/.test(out)) out = `Mc${out[2].toUpperCase()}${out.slice(3)}`;
+      return out;
+    }).join("");
+  }
   function csvCell(v) {
     if (v === null || v === void 0) return "";
     let s = String(v);
@@ -4652,7 +4674,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
   // js/table.js
   var num = (a, b) => (a ?? -Infinity) - (b ?? -Infinity);
   var str = (a, b) => String(a ?? "").localeCompare(String(b ?? ""), void 0, { sensitivity: "base", numeric: true });
-  var NA = '<span class="muted">n/a</span>';
+  var NA = `<span class="muted">${NOT_AVAILABLE}</span>`;
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function formatSaleDate(iso) {
     if (!iso) return "";
@@ -4670,7 +4692,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     return h;
   }
   function missingOwnerText(r) {
-    return r.ownerPublished ? "blank in assessor record" : "not published";
+    return r.ownerPublished ? "Blank in assessor record" : "Not Published";
   }
   function saleNote(r) {
     if (r.saleValid === false) return `Not treated as an arm's-length market sale by the assessor${r.saleExcludeReason ? ` (${r.saleExcludeReason})` : ""}${r.saleDeedType ? ` \xB7 ${r.saleDeedType}` : ""}`;
@@ -4725,7 +4747,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         });
       }
       if (this.optional.parcelId) cols.push({ key: "parcelId", label: "Parcel #", value: (r) => r.parcelId, html: (r) => escapeHtml(r.parcelId), sort: (a, b) => str(a.parcelId, b.parcelId) });
-      if (this.optional.situs) cols.push({ key: "situs", label: "Site Address", value: (r) => r.situs, html: (r) => escapeHtml(r.situs || ""), sort: (a, b) => str(a.situs, b.situs) });
+      if (this.optional.situs) cols.push({ key: "situs", label: "Site Address", value: (r) => formatAddress(r.situs), html: (r) => escapeHtml(formatAddress(r.situs)) || NA, sort: (a, b) => str(a.situs, b.situs) });
       cols.push(
         { key: "value", label: "Taxable Value", cls: "num", value: (r) => r.value ?? "", html: (r) => formatCurrency(r.value) + (r.value !== null && r.valueKind !== "taxable" ? '<span class="sup" title="' + escapeHtml(valueNote(r)) + '">*</span>' : ""), sort: (a, b) => num(a.value, b.value) },
         { key: "acres", label: "Land AC", cls: "num", value: (r) => r.acres !== null && r.acres !== void 0 ? Number(r.acres.toFixed(3)) : "", html: (r) => formatAcres(r.acres) + (r.acresSource === "gis" ? '<span class="sup" title="Computed from parcel geometry">&dagger;</span>' : ""), sort: (a, b) => num(a.acres, b.acres) },
@@ -4761,7 +4783,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
           }
         );
       }
-      if (this.optional.distance) cols.push({ key: "distance", label: "Distance", cls: "num", value: (r) => r.distanceM !== null ? Number(r.distanceM.toFixed(1)) : "", html: (r) => r.distanceM === 0 ? "contains pin" : formatDistance(r.distanceM, this.unit), sort: (a, b) => num(a.distanceM, b.distanceM) });
+      if (this.optional.distance) cols.push({ key: "distance", label: "Distance", cls: "num", value: (r) => r.distanceM !== null ? Number(r.distanceM.toFixed(1)) : "", html: (r) => r.distanceM === null || r.distanceM === void 0 ? NA : r.distanceM === 0 ? "Contains pin" : formatDistance(r.distanceM, this.unit), sort: (a, b) => num(a.distanceM, b.distanceM) });
       return cols;
     }
     setRecords(records, { unit } = {}) {
@@ -4822,8 +4844,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         { label: "Legal owner note", value: (r) => r.notes?.legal_owner || "" },
         { label: "Business on parcel", value: (r) => r.businessName },
         { label: "Parcel #", value: (r) => r.parcelId },
-        { label: "Site address", value: (r) => r.situs },
-        { label: "City", value: (r) => r.city },
+        { label: "Site address", value: (r) => formatAddress(r.situs) },
+        { label: "City", value: (r) => formatAddress(r.city) },
         { label: "County", value: (r) => r.county },
         { label: "Value", value: (r) => r.value ?? "" },
         { label: "Value type", value: (r) => valueNote(r) },
@@ -4848,7 +4870,8 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
         { label: "Sale exclude reason", value: (r) => r.saleExcludeReason },
         { label: "Last market sale date", value: (r) => r.validSaleDate || "" },
         { label: "Last market sale price", value: (r) => r.validSalePrice ?? "" },
-        { label: "Distance (m)", value: (r) => r.distanceM !== null ? Number(r.distanceM.toFixed(2)) : "" },
+        { label: "Distance (m)", value: (r) => r.distanceM !== null && r.distanceM !== void 0 ? Number(r.distanceM.toFixed(2)) : "" },
+        { label: "Distance", value: (r) => r.distanceM === null || r.distanceM === void 0 ? "" : r.distanceM === 0 ? "Contains pin" : formatDistance(r.distanceM, this.unit) },
         { label: "MultiCare", value: (r) => r.multicare ? r.multicare.label : "" },
         { label: "MultiCare entity", value: (r) => r.multicare ? r.multicare.entity : "" },
         { label: "MultiCare matched on", value: (r) => r.multicare ? r.multicare.matchedOn || "" : "" },
@@ -5231,15 +5254,15 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (rec.businessName) rows.push(["Business on parcel", `${escapeHtml(rec.businessName)} ${muted("(occupant per assessor, not ownership)")}`]);
     rows.push(
       ["Parcel #", escapeHtml(rec.parcelId || "")],
-      ["Address", escapeHtml([rec.situs, rec.city].filter(Boolean).join(", "))],
-      [rec.valueKind === "taxable" ? "Taxable value" : "Value", rec.value !== null ? `${formatCurrency(rec.value)}${rec.valueKind !== "taxable" ? ` <span class="muted">(${escapeHtml(valueNote(rec))})</span>` : ""}` : '<span class="muted">n/a</span>']
+      ["Address", escapeHtml([formatAddress(rec.situs), formatAddress(rec.city)].filter(Boolean).join(", ")) || muted(NOT_AVAILABLE)],
+      [rec.valueKind === "taxable" ? "Taxable value" : "Value", rec.value !== null ? `${formatCurrency(rec.value)}${rec.valueKind !== "taxable" ? ` <span class="muted">(${escapeHtml(valueNote(rec))})</span>` : ""}` : muted(NOT_AVAILABLE)]
     );
     if (rec.landValue !== null && rec.landValue !== void 0) rows.push(["Land value", formatCurrency(rec.landValue)]);
     if (rec.improvementValue !== null && rec.improvementValue !== void 0) rows.push(["Improvements", formatCurrency(rec.improvementValue)]);
     if (rec.totalValue !== null && rec.totalValue !== void 0 && rec.valueKind !== "total") rows.push(["Total market value", formatCurrency(rec.totalValue)]);
     if (rec.exemption) rows.push(["Exemption", escapeHtml(rec.exemption)]);
     rows.push(["Land", `${formatAcres(rec.acres)} ac${rec.acresSource === "gis" ? ' <span class="muted">(from geometry)</span>' : rec.acresSource === "sqft" ? ' <span class="muted">(from lot sq ft)</span>' : ""}`]);
-    rows.push(["Use", escapeHtml(rec.useText || rec.useCode || "n/a") + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : "")]);
+    rows.push(["Use", (rec.useText || rec.useCode ? escapeHtml(rec.useText || rec.useCode) : muted(NOT_AVAILABLE)) + (rec.useCode && rec.useText && !rec.useText.includes(rec.useCode) ? ` <span class="muted">(${escapeHtml(rec.useCode)})</span>` : "")]);
     rows.push(["Zoning", rec.zoning ? `<strong>${escapeHtml(rec.zoning)}</strong>${rec.zoningDescription ? ` ${escapeHtml(rec.zoningDescription)}` : ""} ${muted(`(${[rec.zoningJurisdiction, rec.zoningSource === "assessor" ? "assessor attribute" : rec.zoningSource].filter(Boolean).join(", ")})`)}` : muted("not available for this parcel")]);
     if (rec.saleDate) {
       const parts = [escapeHtml(formatSaleDate(rec.saleDate))];
@@ -5255,7 +5278,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
     if (rec.distanceM !== null && rec.distanceM !== void 0) rows.push(["Distance", rec.distanceM === 0 ? "contains the pin" : formatDistance(rec.distanceM, state.ring.unit)]);
     const marked = Boolean(markOf(rec));
     return `<div class="popup">
-    <h3>${rec.id ? `#${rec.id} ` : ""}${escapeHtml(rec.owner || rec.situs || rec.parcelId || "Parcel")}${badges.join("")}</h3>
+    <h3>${rec.id ? `#${rec.id} ` : ""}${escapeHtml(rec.owner || formatAddress(rec.situs) || rec.parcelId || "Parcel")}${badges.join("")}</h3>
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
     <div class="actions">
       ${rec.link ? `<a class="btn btn-outline small" href="${escapeHtml(rec.link)}" target="_blank" rel="noopener">Assessor record</a>` : ""}
@@ -5885,7 +5908,7 @@ body.print-mode .exhibit-footer .disclaimer { max-width: 12in; }
       if (recs.some((r) => r.acresSource === "gis")) notes.push("Some acreages are computed from the parcel polygon.");
       if (recs.some((r) => r.multicare?.deedDiffers)) notes.push("MultiCare shading follows the taxpayer of record; the latest deed for some shaded parcels names another party.");
       if (recs.some((r) => r.multicare?.inferred)) notes.push("Where the source withholds owner names, MultiCare ownership is inferred from a MultiCare business name on a tax-exempt parcel.");
-      printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || "n/a"}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}` });
+      printExhibit({ map: state.map, title, subtitle, bounds: state.ringLayer?.getBounds(), footerLeft: `Parcel data: ${sources || NOT_AVAILABLE}${counties ? ` (${counties} County)` : ""}.${zoning ? ` Zoning: ${zoning}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}` });
     });
     window.addEventListener("resize", () => state.map.invalidateSize());
   }

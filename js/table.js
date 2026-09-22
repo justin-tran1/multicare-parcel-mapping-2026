@@ -1,10 +1,10 @@
 // Results table: sortable columns, totals, CSV export, hover/click sync with the map.
-import { escapeHtml, formatCurrency, formatAcres, toCSV } from './format.js';
+import { escapeHtml, formatCurrency, formatAcres, formatAddress, toCSV, NOT_AVAILABLE } from './format.js';
 import { formatDistance } from './geometry.js';
 
 const num = (a, b) => (a ?? -Infinity) - (b ?? -Infinity);
 const str = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), undefined, { sensitivity: 'base', numeric: true });
-const NA = '<span class="muted">n/a</span>';
+const NA = `<span class="muted">${NOT_AVAILABLE}</span>`;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -31,7 +31,7 @@ export function ownerMarkers(r) {
 
 /** Cell text for a parcel without any owner name. */
 export function missingOwnerText(r) {
-  return r.ownerPublished ? 'blank in assessor record' : 'not published';
+  return r.ownerPublished ? 'Blank in assessor record' : 'Not Published';
 }
 
 function saleNote(r) {
@@ -89,7 +89,7 @@ export class ResultsTable {
       });
     }
     if (this.optional.parcelId) cols.push({ key: 'parcelId', label: 'Parcel #', value: (r) => r.parcelId, html: (r) => escapeHtml(r.parcelId), sort: (a, b) => str(a.parcelId, b.parcelId) });
-    if (this.optional.situs) cols.push({ key: 'situs', label: 'Site Address', value: (r) => r.situs, html: (r) => escapeHtml(r.situs || ''), sort: (a, b) => str(a.situs, b.situs) });
+    if (this.optional.situs) cols.push({ key: 'situs', label: 'Site Address', value: (r) => formatAddress(r.situs), html: (r) => escapeHtml(formatAddress(r.situs)) || NA, sort: (a, b) => str(a.situs, b.situs) });
     cols.push(
       { key: 'value', label: 'Taxable Value', cls: 'num', value: (r) => (r.value ?? ''), html: (r) => formatCurrency(r.value) + (r.value !== null && r.valueKind !== 'taxable' ? '<span class="sup" title="' + escapeHtml(valueNote(r)) + '">*</span>' : ''), sort: (a, b) => num(a.value, b.value) },
       { key: 'acres', label: 'Land AC', cls: 'num', value: (r) => (r.acres !== null && r.acres !== undefined ? Number(r.acres.toFixed(3)) : ''), html: (r) => formatAcres(r.acres) + (r.acresSource === 'gis' ? '<span class="sup" title="Computed from parcel geometry">&dagger;</span>' : ''), sort: (a, b) => num(a.acres, b.acres) },
@@ -125,7 +125,7 @@ export class ResultsTable {
         },
       );
     }
-    if (this.optional.distance) cols.push({ key: 'distance', label: 'Distance', cls: 'num', value: (r) => (r.distanceM !== null ? Number(r.distanceM.toFixed(1)) : ''), html: (r) => (r.distanceM === 0 ? 'contains pin' : formatDistance(r.distanceM, this.unit)), sort: (a, b) => num(a.distanceM, b.distanceM) });
+    if (this.optional.distance) cols.push({ key: 'distance', label: 'Distance', cls: 'num', value: (r) => (r.distanceM !== null && r.distanceM !== undefined ? Number(r.distanceM.toFixed(1)) : ''), html: (r) => (r.distanceM === null || r.distanceM === undefined ? NA : r.distanceM === 0 ? 'Contains pin' : formatDistance(r.distanceM, this.unit)), sort: (a, b) => num(a.distanceM, b.distanceM) });
     return cols;
   }
 
@@ -193,8 +193,8 @@ export class ResultsTable {
       { label: 'Legal owner note', value: (r) => r.notes?.legal_owner || '' },
       { label: 'Business on parcel', value: (r) => r.businessName },
       { label: 'Parcel #', value: (r) => r.parcelId },
-      { label: 'Site address', value: (r) => r.situs },
-      { label: 'City', value: (r) => r.city },
+      { label: 'Site address', value: (r) => formatAddress(r.situs) },
+      { label: 'City', value: (r) => formatAddress(r.city) },
       { label: 'County', value: (r) => r.county },
       { label: 'Value', value: (r) => (r.value ?? '') },
       { label: 'Value type', value: (r) => valueNote(r) },
@@ -219,7 +219,8 @@ export class ResultsTable {
       { label: 'Sale exclude reason', value: (r) => r.saleExcludeReason },
       { label: 'Last market sale date', value: (r) => r.validSaleDate || '' },
       { label: 'Last market sale price', value: (r) => (r.validSalePrice ?? '') },
-      { label: 'Distance (m)', value: (r) => (r.distanceM !== null ? Number(r.distanceM.toFixed(2)) : '') },
+      { label: 'Distance (m)', value: (r) => (r.distanceM !== null && r.distanceM !== undefined ? Number(r.distanceM.toFixed(2)) : '') },
+      { label: 'Distance', value: (r) => (r.distanceM === null || r.distanceM === undefined ? '' : r.distanceM === 0 ? 'Contains pin' : formatDistance(r.distanceM, this.unit)) },
       { label: 'MultiCare', value: (r) => (r.multicare ? r.multicare.label : '') },
       { label: 'MultiCare entity', value: (r) => (r.multicare ? r.multicare.entity : '') },
       { label: 'MultiCare matched on', value: (r) => (r.multicare ? r.multicare.matchedOn || '' : '') },

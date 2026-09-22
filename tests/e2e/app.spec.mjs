@@ -48,10 +48,10 @@ test.describe('radius study', () => {
     await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
     await expect(first.locator('td').nth(await colIndex(page, 'Last Sale'))).toContainText(/\d{2}\/\d{2}\/20\d{2}/);
     await expect(first.locator('td').nth(await colIndex(page, 'Sale Price'))).toContainText('$');
-    // a parcel outside the extract shows n/a for the deed fields but still has zoning
+    // a parcel outside the extract shows N/A for the deed fields but still has zoning
     const uncovered = expected.find((p) => !p.inExtract);
     const row = page.locator(`table.parcels tbody tr[data-key$=":${uncovered.parcel}:${uncovered.oid}"]`);
-    await expect(row.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toHaveText('n/a');
+    await expect(row.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toHaveText('N/A');
     await expect(row.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText(/^(HMX|R2|R3)$/);
     await expect(page.locator('#results-meta')).toContainText('MultiCare-affiliated');
     // The taxable-value column shows currency and the total row is present
@@ -149,13 +149,16 @@ test.describe('radius study', () => {
     await expect(page.locator('table.parcels tbody tr').first()).toContainText('MULTICARE HEALTH SYSTEMS', { timeout: 20000 });
     // re-arm and click on a numbered parcel label: the pin moves, no popup opens
     await page.click('#btn-drop');
+    await page.evaluate(() => { window.__parcelApp.state.study.projector.__stale = true; });
     const label = page.locator('.pnum').nth(5);
     await label.click();
     await expect(page.locator('.leaflet-popup')).toHaveCount(0);
     const pin = await page.evaluate(() => ({ lat: window.__parcelApp.state.pin.lat, lon: window.__parcelApp.state.pin.lon }));
     expect(Math.abs(pin.lat - ALLENMORE.lat) + Math.abs(pin.lon - ALLENMORE.lon)).toBeGreaterThan(1e-5);
-    // out of drop mode, clicking a parcel opens its popup as before
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    // the study re-runs around the new pin (a fresh projector) and the map re-fits to the ring
+    await page.waitForFunction(() => { const s = window.__parcelApp.state.study; return s.projector && !s.projector.__stale; }, null, { timeout: 20000 });
+    // out of drop mode, clicking a parcel (via its label) opens its popup as before
+    await page.locator('.pnum').nth(2).click();
     await expect(page.locator('.leaflet-popup .popup')).toBeVisible();
   });
 
@@ -181,7 +184,7 @@ test.describe('radius study', () => {
     await expect(page.locator('#sources')).toContainText('unavailable');
     await expect(page.locator('#sources')).toContainText('Tax Parcels (Pierce County Open GeoSpatial Data Portal)');
     // The county layer withholds taxpayer names: parcels in the weekly extract show the legal
-    // owner (deed grantee) marked §, parcels outside it stay "not published".
+    // owner (deed grantee) marked §, parcels outside it stay "Not Published".
     const ownerCol = await colIndex(page, 'True Owner');
     const covered = expectedHits(toMeters(250, 'yd')).find((p) => p.inExtract && p.owner === 'Ventas REIT');
     const uncovered = expectedHits(toMeters(250, 'yd')).find((p) => !p.inExtract);
@@ -190,7 +193,7 @@ test.describe('radius study', () => {
     await expect(coveredRow.locator('td').nth(ownerCol)).toContainText('Ventas REIT');
     await expect(coveredRow.locator('td').nth(ownerCol).locator('.sup')).toHaveText('§');
     const uncoveredRow = page.locator(`table.parcels tbody tr[data-key$=":${uncovered.parcel}:${uncovered.oid}"]`);
-    await expect(uncoveredRow.locator('td').nth(ownerCol)).toHaveText('not published');
+    await expect(uncoveredRow.locator('td').nth(ownerCol)).toHaveText('Not Published');
     // The MultiCare parcel is recognised through the deed even without a taxpayer name
     const first = page.locator('table.parcels tbody tr').first();
     await expect(first).toHaveClass(/mc-owned/);
@@ -275,7 +278,7 @@ test.describe('radius study', () => {
     await expect(page.locator('#sources')).toContainText('weekly data workflow');
     const first = page.locator('table.parcels tbody tr').first();
     await expect(first).toContainText('MULTICARE HEALTH SYSTEMS');
-    await expect(first.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toHaveText('n/a');
+    await expect(first.locator('td').nth(await colIndex(page, 'Legal Owner (deed)'))).toHaveText('N/A');
     await expect(first.locator('td').nth(await colIndex(page, 'Zoning'))).toHaveText('HMX');
   });
 
@@ -295,6 +298,9 @@ test.describe('radius study', () => {
     expect(lines[1]).toContain('MultiCare owned');
     expect(lines[1]).toContain('HMX');
     expect(lines[1]).toContain('Statutory Warranty Deed');
+    expect(lines[1]).toMatch(/,\d{4} S Union Ave,/);
+    expect(lines[0]).toContain('Distance (m),Distance,');
+    expect(lines[1]).toContain(',Contains pin,');
   });
 
   test('optional columns toggle and the print layout keeps ID, owner, value, acres, use and zoning', async ({ page }) => {
@@ -308,6 +314,18 @@ test.describe('radius study', () => {
     await expect(page.locator('table.parcels thead')).not.toContainText('Legal Owner');
     await page.check('#col-parcel');
     await expect(page.locator('table.parcels thead')).toContainText('Parcel #');
+    // site addresses are cased like a mailing label; distances spell out the unit
+    await page.check('#col-address');
+    await page.check('#col-distance');
+    const first = page.locator('table.parcels tbody tr').first();
+    await expect(first.locator('td').nth(await colIndex(page, 'Site Address'))).toHaveText(/^\d{4} S Union Ave$/);
+    await expect(first.locator('td').nth(await colIndex(page, 'Distance'))).toHaveText('Contains pin');
+    await expect(page.locator('table.parcels tbody tr').nth(1).locator('td').nth(await colIndex(page, 'Distance'))).toHaveText(/^\d+ yards$/);
+    await page.selectOption('#unit', 'mi');
+    await expect(page.locator('table.parcels tbody tr').nth(1).locator('td').nth(await colIndex(page, 'Distance'))).toHaveText(/^0\.\d+ miles$/);
+    await page.selectOption('#unit', 'yd');
+    await page.uncheck('#col-address');
+    await page.uncheck('#col-distance');
     // reload keeps the choice
     await page.reload();
     await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
@@ -380,6 +398,8 @@ test.describe('radius study', () => {
     await expect(popup).toContainText('Statutory Warranty Deed');
     await expect(popup).toContainText('Business on parcel');
     await expect(popup).toContainText('Non Profit Hospital');
+    await expect(popup).toContainText(/\d{4} S Union Ave/);
+    await expect(popup).not.toContainText('UNION AVE');
     await expect(page.locator('.leaflet-popup .popup a')).toHaveAttribute('href', /atip\.piercecountywa\.gov/);
   });
 });

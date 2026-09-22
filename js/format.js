@@ -30,6 +30,40 @@ export function titleCaseOwner(s) {
   return String(s ?? '').trim();
 }
 
+/** Placeholder for a field the source does not carry for this parcel. */
+export const NOT_AVAILABLE = 'N/A';
+
+// Address tokens kept exactly as published: directionals and bounds, state and route codes,
+// roman numerals, and the "XXX" house-number prefix Pierce County uses for GIS-estimated
+// situs addresses.
+const ADDRESS_KEEP_UPPER = new Set(['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW', 'NB', 'SB', 'EB', 'WB', 'WA', 'US', 'SR', 'PO', 'XXX', 'II', 'III', 'IV']);
+
+/**
+ * Assessor rolls publish situs addresses in capitals ("1901 S UNION AVE"); the table shows
+ * them cased like a mailing label ("1901 S Union Ave"). Numbers, unit designators such as
+ * "#200" or "200A" and hyphenated ranges are kept as published; ordinal suffixes are lowered
+ * ("112TH" -> "112th"); directionals and the state code stay upper case.
+ */
+export function formatAddress(s) {
+  const text = String(s ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.split(' ').map(caseAddressWord).join(' ');
+}
+
+function caseAddressWord(word) {
+  if (/\d/.test(word)) return word.replace(/^(\d+)(ST|ND|RD|TH)$/i, (_, n, suffix) => n + suffix.toLowerCase());
+  return word
+    .split(/([-/])/)
+    .map((part) => {
+      if (!part || /^[-/]$/.test(part)) return part;
+      if (ADDRESS_KEEP_UPPER.has(part.replace(/[^A-Za-z]/g, '').toUpperCase())) return part.toUpperCase();
+      let out = part.toLowerCase().replace(/(^|[^a-z])([a-z])/g, (m, before, ch) => before + ch.toUpperCase());
+      if (/^Mc[a-z]/.test(out)) out = `Mc${out[2].toUpperCase()}${out.slice(3)}`;
+      return out;
+    })
+    .join('');
+}
+
 export function csvCell(v) {
   if (v === null || v === undefined) return '';
   let s = String(v);
