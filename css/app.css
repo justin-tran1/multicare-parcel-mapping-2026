@@ -162,6 +162,7 @@ details.sub summary { cursor: pointer; font-weight: 600; color: var(--dark-grey)
 /* parcel number labels */
 .pnum-wrap { background: transparent; border: 0; }
 .pnum {
+  position: relative;
   width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 1.5px solid #222; color: #111;
   font-weight: 700; font-size: 11px; line-height: 21px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.35);
   cursor: pointer; user-select: none;
@@ -169,12 +170,25 @@ details.sub summary { cursor: pointer; font-weight: 600; color: var(--dark-grey)
 .pnum.wide { font-size: 10px; letter-spacing: -0.02em; }
 .pnum.mc-owned { background: var(--cbre-green); border-color: var(--cbre-green); color: #fff; }
 .pnum.mc-affiliate { background: var(--celadon); border-color: var(--cbre-green); color: var(--dark-green); }
-.pnum.mc-occupied { background: var(--data-light-blue); border-color: #fff; color: #fff; }
-.pnum.mc-owned.mc-occupied { background: var(--cbre-green); border-color: var(--data-light-blue); border-width: 3px; line-height: 18px; color: #fff; }
 .pnum.hl { box-shadow: 0 0 0 3px var(--data-orange); }
 
 .pin-icon { width: 30px; height: 40px; }
-.occ-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--data-light-blue); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--data-light-blue); }
+
+/* MultiCare occupied: the MultiCare symbol (assets/multicare-symbol.png), on a small white
+   plate so it reads on the street map, the imagery and a parcel fill alike. It appears on
+   the parcel's number label, at each MultiCare campus and in the legend. The plates are
+   forced to print, since browsers drop background colours by default. The selectors carry
+   .leaflet-container because Leaflet resets every marker-pane image to its natural width
+   and no padding (".leaflet-container .leaflet-marker-pane img"), which must not win. */
+.leaflet-container .leaflet-marker-pane img.occ-badge,
+.leaflet-container .leaflet-marker-pane img.occ-mark {
+  display: block; height: auto; background: #fff; box-sizing: content-box;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.35);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.leaflet-container .leaflet-marker-pane img.occ-badge { position: absolute; top: -8px; right: -12px; width: 15px; padding: 1px; border-radius: 3px; }
+.leaflet-container .leaflet-marker-pane img.occ-mark { width: 22px; padding: 2px; border-radius: 4px; }
+.occ-wrap { background: transparent; border: 0; }
 
 .map-legend {
   background: rgba(255,255,255,0.95); border: 1px solid var(--light-grey); border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.5; min-width: 170px;
@@ -185,7 +199,7 @@ details.sub summary { cursor: pointer; font-weight: 600; color: var(--dark-grey)
 .legend-swatch.mc-owned { background: rgba(0, 63, 45, 0.5); border-color: var(--cbre-green); }
 .legend-swatch.mc-affiliate { background: rgba(128, 187, 173, 0.6); border-color: var(--cbre-green); }
 .legend-swatch.ring { border: 0; height: 0; border-top: 3px solid var(--accent-green); }
-.legend-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--data-light-blue); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--data-light-blue); flex: none; margin: 0 4px; }
+.legend-mark { width: 20px; height: auto; flex: none; margin: 0 1px; }
 
 .popup { font-size: 12.5px; min-width: 230px; }
 .popup h3 { font-size: 14px; color: var(--cbre-green); margin-bottom: 4px; }

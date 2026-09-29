@@ -11,12 +11,15 @@ const safe = (s) => s.replace(/<\/(script|style)/gi, '<\\/$1');
 
 const MIME = { '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
 const assetPath = (file) => join(root, 'assets', file);
-/** Inlines every assets/ reference (HTML src or CSS url) as a data URI so the page works from disk. */
-const inlineAssets = (text) => text.replace(/(src=|url\()(["']?)assets\/([^"')\s>]+)\2/g, (m, pre, q, file) => {
+const dataUri = (file) => {
   if (!existsSync(assetPath(file))) throw new Error(`build-single: missing asset ${file}`);
   const mime = MIME[extname(file).toLowerCase()] || 'application/octet-stream';
-  return `${pre}${q}data:${mime};base64,${readFileSync(assetPath(file)).toString('base64')}${q}`;
-});
+  return `data:${mime};base64,${readFileSync(assetPath(file)).toString('base64')}`;
+};
+/** Inlines every assets/ reference (HTML src or CSS url) as a data URI so the page works from disk. */
+const inlineAssets = (text) => text.replace(/(src=|url\()(["']?)assets\/([^"')\s>]+)\2/g, (m, pre, q, file) => `${pre}${q}${dataUri(file)}${q}`);
+/** Same for asset paths the app code holds as string literals (the map marker symbol). */
+const inlineAssetLiterals = (js) => js.replace(/(["'`])assets\/([\w.-]+)\1/g, (m, q, file) => `${q}${dataUri(file)}${q}`);
 
 const bundle = await build({
   entryPoints: [join(root, 'js/app.js')],
@@ -27,7 +30,7 @@ const bundle = await build({
   write: false,
   legalComments: 'none',
 });
-const appJs = bundle.outputFiles[0].text;
+const appJs = inlineAssetLiterals(bundle.outputFiles[0].text);
 
 const leafletCss = read('vendor/leaflet/leaflet.css').replace(/url\((["']?)images\/([^"')]+)\1\)/g, (m, q, file) => {
   const b64 = readFileSync(join(root, 'vendor/leaflet/images', file)).toString('base64');

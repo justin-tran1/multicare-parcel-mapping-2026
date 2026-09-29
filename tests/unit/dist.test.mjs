@@ -6,9 +6,13 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const dist = await readFile(new URL('../../dist/index.html', import.meta.url), 'utf8');
 const source = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+// asset paths the app code holds as string literals (the map marker symbol)
+const jsDir = new URL('../../js/', import.meta.url);
+const jsSources = await Promise.all((await readdir(jsDir)).filter((f) => f.endsWith('.js')).map((f) => readFile(new URL(f, jsDir), 'utf8')));
+const jsAssetRefs = [...new Set(jsSources.flatMap((js) => [...js.matchAll(/["'`]assets\/([\w.-]+)["'`]/g)].map((m) => m[1])))];
 
 test('the standalone build inlines the logos and references no local file', () => {
-  const localRefs = [...dist.matchAll(/(?:src|href)=["'](?:assets|css|js|vendor)\/[^"']*|url\(["']?(?:assets|vendor)\/[^"')]*/g)].map((m) => m[0]);
+  const localRefs = [...dist.matchAll(/(?:src|href)=["'](?:assets|css|js|vendor)\/[^"']*|url\(["']?(?:assets|vendor)\/[^"')]*|["'`]assets\/[\w.-]+["'`]/g)].map((m) => m[0]);
   assert.deepEqual(localRefs, [], 'local file references left in dist');
   assert.match(dist, /<img class="logo logo-cbre" src="data:image\/png;base64,/);
   assert.match(dist, /<img class="logo logo-multicare" src="data:image\/png;base64,/);
@@ -33,8 +37,9 @@ test('every logo the page references exists in assets/ and the print button read
 // Guards against a committed dist built before an asset was replaced: each logo the source
 // references must appear in dist as the base64 of the file that is in assets/ today.
 test('the inlined logos match the current files in assets/', async () => {
-  const refs = [...new Set([...source.matchAll(/src="assets\/([^"]+)"/g)].map((m) => m[1]))];
-  assert.ok(refs.length >= 4);
+  const refs = [...new Set([...[...source.matchAll(/src="assets\/([^"]+)"/g)].map((m) => m[1]), ...jsAssetRefs])];
+  assert.ok(refs.length >= 5);
+  assert.ok(refs.includes('multicare-symbol.png'), 'the map symbol is referenced from the app code');
   for (const file of refs) {
     const b64 = (await readFile(new URL(`../../assets/${file}`, import.meta.url))).toString('base64');
     assert.ok(dist.includes(`base64,${b64}`), `dist/index.html does not carry the current assets/${file}; run npm run build:single`);
