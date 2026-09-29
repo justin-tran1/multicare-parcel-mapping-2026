@@ -225,6 +225,7 @@ export class ResultsTable {
       { label: 'MultiCare entity', value: (r) => (r.multicare ? r.multicare.entity : '') },
       { label: 'MultiCare matched on', value: (r) => (r.multicare ? r.multicare.matchedOn || '' : '') },
       { label: 'MultiCare occupied', value: (r) => (r.occupied ? r.occupiedBy || 'yes' : '') },
+      { label: 'MultiCare campus', value: (r) => (r.campuses || []).map((l) => [l.name, [l.address, l.city].filter(Boolean).join(', ')].filter(Boolean).join(', ')).join('; ') },
       { label: 'Assessor link', value: (r) => r.link },
       { label: 'Data source', value: (r) => r.sourceName },
     ];

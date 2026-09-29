@@ -1,11 +1,14 @@
 // Derives the reversed (white) variant of a logo from its full-colour PNG, so the same mark
 // can sit on the CBRE-green bars and on the white exhibit footer.
 //
-//   node scripts/reverse-logo.mjs [source.png] [colour-out.png] [reversed-out.png]
+//   node scripts/reverse-logo.mjs [source.png] [colour-out.png] [reversed-out.png] [--no-reversed]
 //
 // Defaults regenerate the MultiCare marks in place:
 //   node scripts/reverse-logo.mjs assets/multicare-logo.png
+// The map marker symbol has no reversed variant:
+//   node scripts/reverse-logo.mjs <supplied-symbol.png> assets/multicare-symbol.png --no-reversed
 //
+// Artwork supplied on an opaque white background has that background knocked out first.
 // Both outputs are trimmed to the artwork so that the CSS, which sizes logos by height,
 // gets the true aspect ratio. In the reversed variant the ink becomes white and anything
 // knocked out of it (the cross inside the MultiCare symbol) becomes transparent, so the bar
@@ -170,6 +173,88 @@ export function trim(img, threshold = 0) {
 }
 
 /**
+ * Removes an opaque light background, for artwork supplied on white instead of on
+ * transparency. Only light pixels connected to the image border count as background, so an
+ * enclosed light area such as the cross inside the MultiCare symbol stays opaque. The
+ * antialiased rim between ink and background is un-blended from white ("colour to alpha"),
+ * so the edge stays smooth on any map or bar colour instead of keeping a white fringe.
+ * Artwork whose border is not an opaque light matte is returned unchanged.
+ */
+export function knockOutBackground(img, { light = 200, rim = 2 } = {}) {
+  const { width: w, height: h, data } = img;
+  const n = w * h;
+  const isLight = (k) => data[k * 4 + 3] === 255 && Math.min(data[k * 4], data[k * 4 + 1], data[k * 4 + 2]) >= light;
+
+  const border = [];
+  for (let x = 0; x < w; x++) border.push(x, (h - 1) * w + x);
+  for (let y = 1; y < h - 1; y++) border.push(y * w, y * w + w - 1);
+  if (border.filter(isLight).length < border.length * 0.9) return img;
+
+  // background: light pixels reachable from the border
+  const bg = new Uint8Array(n);
+  const stack = [];
+  const visit = (k) => {
+    if (!bg[k] && isLight(k)) {
+      bg[k] = 1;
+      stack.push(k);
+    }
+  };
+  border.forEach(visit);
+  while (stack.length) {
+    const k = stack.pop();
+    const x = k % w;
+    if (x > 0) visit(k - 1);
+    if (x < w - 1) visit(k + 1);
+    if (k >= w) visit(k - w);
+    if (k < n - w) visit(k + w);
+  }
+
+  // the rim: pixels within `rim` of both the background and the artwork
+  const dilate = (mask) => {
+    let cur = mask;
+    for (let i = 0; i < rim; i++) {
+      const next = Uint8Array.from(cur);
+      for (let k = 0; k < n; k++) {
+        if (cur[k]) continue;
+        const x = k % w;
+        const y = (k - x) / w;
+        for (let dy = -1; dy <= 1 && !next[k]; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if (xx >= 0 && yy >= 0 && xx < w && yy < h && cur[yy * w + xx]) {
+              next[k] = 1;
+              break;
+            }
+          }
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  };
+  const nearBg = dilate(bg);
+  const nearArt = dilate(bg.map((v) => (v ? 0 : 1)));
+
+  const out = Buffer.from(data);
+  for (let k = 0; k < n; k++) {
+    const i = k * 4;
+    if (nearBg[k] && nearArt[k]) {
+      const a = 1 - Math.min(data[i], data[i + 1], data[i + 2]) / 255;
+      if (a <= 0) {
+        out[i] = 0; out[i + 1] = 0; out[i + 2] = 0; out[i + 3] = 0;
+      } else {
+        for (let c = 0; c < 3; c++) out[i + c] = Math.max(0, Math.min(255, Math.round(255 - (255 - data[i + c]) / a)));
+        out[i + 3] = Math.round(a * data[i + 3]);
+      }
+    } else if (bg[k]) {
+      out[i] = 0; out[i + 1] = 0; out[i + 2] = 0; out[i + 3] = 0;
+    }
+  }
+  return { width: w, height: h, data: out };
+}
+
+/**
  * Turns the ink white and the knockouts transparent. Ink coverage is read from the channel
  * the ink darkens most, which is 0 for a solid ink pixel and 255 for a white knockout, so a
  * solid pixel becomes opaque white, a knocked-out one becomes fully transparent, and the
@@ -190,17 +275,21 @@ export function reverse(img) {
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const [source = 'assets/multicare-logo.png', colourOut = source, reversedOut = `${colourOut.replace(/\.png$/i, '')}-white.png`] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const withReversed = !args.includes('--no-reversed');
+  const [source = 'assets/multicare-logo.png', colourOut = source, reversedOut = `${colourOut.replace(/\.png$/i, '')}-white.png`] = args.filter((a) => !a.startsWith('--'));
   // The colour output may overwrite the source in place (that is how a mark is re-trimmed),
   // but the reversed variant must never land on either, or the artwork is lost.
-  for (const [name, path] of [['the colour output', colourOut], ['the source', source]]) {
-    if (resolve(reversedOut) === resolve(path)) {
-      console.error(`refusing to write the reversed mark over ${name} (${path}); pass a different output path`);
-      process.exit(1);
+  if (withReversed) {
+    for (const [name, path] of [['the colour output', colourOut], ['the source', source]]) {
+      if (resolve(reversedOut) === resolve(path)) {
+        console.error(`refusing to write the reversed mark over ${name} (${path}); pass a different output path`);
+        process.exit(1);
+      }
     }
   }
-  const trimmed = trim(decodePng(readFileSync(source)));
+  const trimmed = trim(knockOutBackground(decodePng(readFileSync(source))));
   writeFileSync(colourOut, encodePng(trimmed));
-  writeFileSync(reversedOut, encodePng(reverse(trimmed)));
-  console.log(`wrote ${colourOut} and ${reversedOut} (${trimmed.width}x${trimmed.height})`);
+  if (withReversed) writeFileSync(reversedOut, encodePng(reverse(trimmed)));
+  console.log(`wrote ${colourOut}${withReversed ? ` and ${reversedOut}` : ''} (${trimmed.width}x${trimmed.height})`);
 }

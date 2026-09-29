@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { installMockArcGIS, makeParcels, makeZones, ALLENMORE, TACOMA_URL, PIERCE_URL, TACOMA_ZONING_URL, TACOMA_DART_URL } from './fixtures/mock-arcgis.mjs';
 
 // both Tacoma zoning sources (hub layer and DART map service) down
@@ -303,6 +304,106 @@ test.describe('radius study', () => {
     expect(layout.mapHeight).toBeGreaterThan(200);
     expect(layout.rows).toBeGreaterThan(0);
     await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+  });
+
+  test('MultiCare-occupied parcels and campuses carry the MultiCare symbol instead of a blue dot', async ({ page }) => {
+    await installMockArcGIS(page, { parcels });
+    // Campus coordinates come from geocoding, which the app caches; seed that cache so one
+    // campus sits inside an ordinary (not MultiCare-owned) parcel in the ring, a second on open
+    // ground just north of the parcel grid, and the rest far away.
+    const hits = expectedHits(toMeters(250, 'yd'));
+    const plain = hits.find((p) => !p.centre && !/multi-?care|pulse/i.test(p.owner));
+    const [lon, lat] = plain.ring.slice(0, 4).reduce(([x, y], [a, b]) => [x + a / 4, y + b / 4], [0, 0]);
+    const { locations } = JSON.parse(readFileSync(new URL('../../data/multicare_locations.json', import.meta.url), 'utf8'));
+    // a third campus shares the first one's parcel (Tacoma General and Mary Bridge are neighbours)
+    const [cornerLon, cornerLat] = plain.ring[0];
+    const spots = [{ lat, lon }, { lat: ALLENMORE.lat + 0.0029, lon: ALLENMORE.lon }, { lat: (lat + cornerLat) / 2, lon: (lon + cornerLon) / 2 }];
+    const cache = Object.fromEntries(locations.map((l, i) => [l.address, spots[i] || { lat: 46 + i * 0.01, lon: -120 }]));
+    const [inParcel, onOpenGround, alsoInParcel] = locations.map((l) => l.name);
+    await page.addInitScript((c) => localStorage.setItem('mcpm:geocoded_locations', JSON.stringify(c)), cache);
+    await page.goto(hashFor());
+    await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
+    const loaded = (loc) => loc.evaluateAll((imgs) => imgs.map((i) => i.complete && i.naturalWidth > 0));
+
+    // the owned hospital parcel (occupied through its business name) and the campus parcel
+    await expect(page.locator('.pnum.mc-occupied')).toHaveCount(2, { timeout: 10000 });
+    const badges = page.locator('.pnum.mc-occupied img.occ-badge');
+    await expect(badges).toHaveCount(2);
+    expect(await loaded(badges)).toEqual([true, true]);
+    await expect(badges.first()).toHaveAttribute('src', /assets\/multicare-symbol\.png$/);
+    // no other label carries it, and the labels keep their own colours rather than turning blue
+    await expect(page.locator('.pnum:not(.mc-occupied) img.occ-badge')).toHaveCount(0);
+    const fills = await page.locator('.pnum.mc-occupied').evaluateAll((els) => els.map((e) => ({ owned: e.classList.contains('mc-owned'), bg: getComputedStyle(e).backgroundColor })));
+    expect(fills.find((f) => f.owned).bg).toBe('rgb(0, 63, 45)'); // CBRE green
+    expect(fills.find((f) => !f.owned).bg).toBe('rgb(255, 255, 255)');
+    // a campus on open ground gets the symbol as its own marker; the campus inside the numbered
+    // parcel does not, since that parcel's label already carries it
+    const campus = page.locator(`.occ-wrap[title="${onOpenGround}"] img.occ-mark`);
+    await expect(campus).toHaveCount(1);
+    expect(await loaded(campus)).toEqual([true]);
+    await expect(page.locator(`.occ-wrap[title="${inParcel}"], .occ-wrap[title="${alsoInParcel}"]`)).toHaveCount(0);
+    // with numbering off there is no label to carry it, so that campus gets its marker back
+    await page.uncheck('#opt-labels');
+    await expect(page.locator(`.occ-wrap[title="${inParcel}"] img.occ-mark`)).toHaveCount(1);
+    await page.check('#opt-labels');
+    await expect(page.locator(`.occ-wrap[title="${inParcel}"]`)).toHaveCount(0);
+    // the parcel names every campus it holds: in the label's hover text, the popup and the CSV
+    const campusLabel = page.locator('.pnum-wrap', { has: page.locator('.pnum.mc-occupied:not(.mc-owned)') });
+    await expect(campusLabel).toHaveAttribute('title', new RegExp(`MultiCare occupied \\(${inParcel}; ${alsoInParcel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)$`));
+    await campusLabel.click();
+    const popup = page.locator('.leaflet-popup .popup');
+    await expect(popup).toContainText('MultiCare campuses');
+    await expect(popup).toContainText(inParcel);
+    await expect(popup).toContainText(alsoInParcel);
+    await expect(popup).toContainText(locations[0].address);
+    await page.locator('.leaflet-popup-close-button').click();
+    const [download] = await Promise.all([page.waitForEvent('download'), page.click('#btn-export')]);
+    const csv = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString('utf8'));
+    expect(csv.split(/\r?\n/)[0]).toContain('MultiCare occupied,MultiCare campus');
+    expect(csv).toContain(`${inParcel}, ${locations[0].address}, ${locations[0].city}`);
+    // the campus name on hover sits above the symbol, not over it
+    await page.locator(`.occ-wrap[title="${onOpenGround}"]`).hover();
+    const tip = page.locator('.leaflet-tooltip');
+    await expect(tip).toContainText(onOpenGround);
+    const [tipBox, plateBox] = [await tip.boundingBox(), await campus.boundingBox()];
+    expect(tipBox.y + tipBox.height).toBeLessThanOrEqual(plateBox.y);
+    await page.mouse.move(5, 5);
+    // the legend key is the symbol too; no blue dot is left anywhere
+    const key = page.locator('#legend img.legend-mark');
+    await expect(key).toBeVisible();
+    expect(await loaded(key)).toEqual([true]);
+    await expect(page.locator('#legend')).toContainText('MultiCare occupied (2)');
+    await expect(page.locator('.occ-dot, .legend-dot')).toHaveCount(0);
+    // drawn at marker size, not at the artwork's natural size (Leaflet resets marker images),
+    // with the badge on its label's upper right overlapping the label's edge. Measured in one
+    // synchronous pass: labels are re-rendered when the campus classification lands.
+    const geometry = () => page.evaluate(() => {
+      const box = (el) => el && el.getBoundingClientRect();
+      const label = document.querySelector('.pnum.mc-occupied');
+      const b = box(label?.querySelector('img.occ-badge'));
+      const l = box(label);
+      const m = box(document.querySelector('.occ-wrap img.occ-mark'));
+      const k = box(document.querySelector('#legend img.legend-mark'));
+      if (!b || !l || !m || !k) return null;
+      return {
+        badge: [Math.round(b.width), Math.round(b.height)], mark: Math.round(m.width), key: Math.round(k.width),
+        upperRight: b.left > l.left + l.width / 2 && b.top < l.top && b.bottom > l.top,
+      };
+    });
+    await expect.poll(geometry).toEqual({ badge: [17, 13], mark: 26, key: 20, upperRight: true });
+    // the symbol prints with the exhibit
+    await page.evaluate(() => { window.print = () => {}; });
+    await page.setViewportSize({ width: 1700, height: 1100 });
+    await page.click('#btn-print');
+    await page.waitForFunction(() => document.body.classList.contains('print-mode'));
+    await expect(page.locator('.pnum.mc-occupied img.occ-badge').first()).toBeVisible();
+    await expect(page.locator('#legend img.legend-mark')).toBeVisible();
+    await page.waitForFunction(() => !document.body.classList.contains('print-mode'), null, { timeout: 5000 });
+    // switching the markers off removes the badges, the campus markers and the legend key
+    await page.uncheck('#opt-occupied');
+    await expect(page.locator('img.occ-badge, img.occ-mark, #legend img.legend-mark')).toHaveCount(0);
+    await page.check('#opt-occupied');
+    await expect(page.locator('.pnum.mc-occupied img.occ-badge')).toHaveCount(2);
   });
 
   test('the top bar keeps its buttons reachable at phone widths', async ({ page }) => {

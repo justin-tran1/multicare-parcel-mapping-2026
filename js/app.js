@@ -1,6 +1,6 @@
 // Application controller: map, pin/ring interaction, live parcel loading, numbering,
 // MultiCare shading, results table, sharing and printing.
-import { CBRE, RING_DEFAULTS, PARCEL_STYLE, MIN_PARCEL_ZOOM, MAX_RING_RADIUS_M, BASEMAPS, DEFAULT_BASEMAP, WA_BBOX, SITE_BASE } from './config.js';
+import { CBRE, RING_DEFAULTS, PARCEL_STYLE, MIN_PARCEL_ZOOM, MAX_RING_RADIUS_M, BASEMAPS, DEFAULT_BASEMAP, WA_BBOX, SITE_BASE, MC_SYMBOL_SRC } from './config.js';
 import {
   toMeters, fromMeters, makeProjector, circlePolygon, circleBBox, projectPolygons, distanceFromOriginToPolygons,
   labelPoint, pointInGeometry, UNIT_LABELS, formatDistance, expandBBox,
@@ -135,10 +135,12 @@ function classifyRecord(rec) {
   rec.multicare = multicare;
   // Occupancy: a MultiCare business name on the parcel does not by itself imply ownership.
   const mark = markOf(rec);
-  const loc = state.locations.find((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
-  rec.occupied = Boolean(mark) || Boolean(loc) || Boolean(biz);
+  // Every campus the parcel contains is kept: its own map marker is not drawn while the
+  // parcel's number label carries the symbol, so the parcel is where the campus is named.
+  rec.campuses = state.locations.filter((l) => l.lat && l.lon && pointInGeometry([l.lon, l.lat], rec.geometry));
+  rec.occupied = Boolean(mark) || rec.campuses.length > 0 || Boolean(biz);
   if (mark) rec.occupiedBy = typeof mark === 'string' ? mark : 'Marked by user';
-  else if (loc) rec.occupiedBy = loc.name;
+  else if (rec.campuses.length) rec.occupiedBy = rec.campuses.map((l) => l.name).join('; ');
   else if (biz) rec.occupiedBy = `${rec.businessName} (business name on the assessor roll)`;
   else rec.occupiedBy = '';
 }
@@ -269,6 +271,7 @@ function restyleAll() {
     if (rec) l.setStyle(parcelStyle(rec, true));
   }
   renderLabels();
+  renderLocations();
   renderLegend();
 }
 
@@ -290,6 +293,9 @@ function popupHtml(rec) {
     rows.push(['Legal owner (deed)', rec.legalOwner ? escapeHtml(rec.legalOwner) + (rec.notes?.legal_owner ? ` ${muted(`(${rec.notes.legal_owner})`)}` : '') : muted('not available')]);
   }
   if (rec.businessName) rows.push(['Business on parcel', `${escapeHtml(rec.businessName)} ${muted('(occupant per assessor, not ownership)')}`]);
+  if (rec.campuses?.length) {
+    rows.push([rec.campuses.length > 1 ? 'MultiCare campuses' : 'MultiCare campus', rec.campuses.map((l) => `${escapeHtml(l.name)}<br>${muted([l.address, l.city].filter(Boolean).join(', '))}`).join('<br>')]);
+  }
   rows.push(
     ['Parcel #', escapeHtml(rec.parcelId || '')],
     ['Address', escapeHtml([formatAddress(rec.situs), formatAddress(rec.city)].filter(Boolean).join(', ')) || muted(NOT_AVAILABLE)],
@@ -489,6 +495,7 @@ function clearStudy() {
   $('#btn-renumber').disabled = true;
   $('#results-meta').textContent = 'Drop a pin to list parcels.';
   $('#results-title').textContent = 'Parcels within ring';
+  renderLocations(); // campuses the study's labels were marking get their own markers back
 }
 
 function clearAll() {
@@ -611,8 +618,14 @@ function renderLabels() {
   if (!state.settings.showLabels) return;
   for (const rec of state.study.records) {
     if (!rec.labelLngLat) continue;
-    const icon = L.divIcon({ className: 'pnum-wrap', html: `<div class="${labelClass(rec)}">${rec.id}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
-    const m = L.marker([rec.labelLngLat[1], rec.labelLngLat[0]], { icon, parcelKey: rec.key, keyboard: false, zIndexOffset: 500, title: `#${rec.id} ${rec.owner || ''}` });
+    // A MultiCare-occupied parcel keeps its number (and its owned/affiliate colours) and
+    // carries the MultiCare symbol at the label's upper right.
+    const occupied = state.settings.showOccupied && rec.occupied;
+    const badge = occupied ? `<img class="occ-badge" src="${MC_SYMBOL_SRC}" alt="" draggable="false">` : '';
+    const icon = L.divIcon({ className: 'pnum-wrap', html: `<div class="${labelClass(rec)}">${rec.id}${badge}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+    const campuses = occupied && rec.campuses?.length ? ` (${rec.campuses.map((l) => l.name).join('; ')})` : '';
+    const title = `#${rec.id} ${rec.owner || ''}${occupied ? ` · MultiCare occupied${campuses}` : ''}`;
+    const m = L.marker([rec.labelLngLat[1], rec.labelLngLat[0]], { icon, parcelKey: rec.key, keyboard: false, zIndexOffset: 500, title });
     m.on('click', (e) => { if (!dropPinIfArmed(e)) openPopup(rec.key, e.latlng); });
     m.on('mouseover', () => highlightParcel(rec.key, true));
     m.on('mouseout', () => highlightParcel(rec.key, false));
@@ -622,11 +635,18 @@ function renderLabels() {
 
 function renderLocations() {
   const group = state.locationLayer;
+  if (!group) return;
   group.clearLayers();
   if (!state.settings.showOccupied) return;
+  // A campus inside a numbered study parcel is already marked by the symbol on that parcel's
+  // label; a second marker there would sit underneath the number.
+  const labelled = state.settings.showLabels ? state.study.records.filter((r) => r.labelLngLat && r.occupied) : [];
   for (const loc of state.locations) {
     if (!loc.lat || !loc.lon) continue;
-    const m = L.marker([loc.lat, loc.lon], { icon: L.divIcon({ className: 'occ-wrap', html: '<div class="occ-dot"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }), keyboard: false, title: loc.name });
+    if (labelled.some((r) => pointInGeometry([loc.lon, loc.lat], r.geometry))) continue;
+    // tooltipAnchor lifts the name above the 20px-tall plate instead of over it
+    const icon = L.divIcon({ className: 'occ-wrap', html: `<img class="occ-mark" src="${MC_SYMBOL_SRC}" alt="" draggable="false">`, iconSize: [26, 20], iconAnchor: [13, 10], tooltipAnchor: [0, -10] });
+    const m = L.marker([loc.lat, loc.lon], { icon, keyboard: false, title: loc.name });
     m.bindTooltip(`${escapeHtml(loc.name)}<br><span class="muted">${escapeHtml(loc.address || '')}${loc.city ? ', ' + escapeHtml(loc.city) : ''}</span>`, { direction: 'top' });
     group.addLayer(m);
   }
@@ -646,7 +666,7 @@ function renderLegend() {
     rows.push(`<div class="legend-row"><span class="legend-swatch mc-owned"></span>MultiCare owned${hits.length ? ` (${owned})` : ''}</div>`);
     if (aff || !hits.length) rows.push(`<div class="legend-row"><span class="legend-swatch mc-affiliate"></span>MultiCare affiliate / JV${hits.length ? ` (${aff})` : ''}</div>`);
   }
-  if (state.settings.showOccupied) rows.push(`<div class="legend-row"><span class="legend-dot"></span>MultiCare occupied${hits.length ? ` (${occ})` : ''}</div>`);
+  if (state.settings.showOccupied) rows.push(`<div class="legend-row"><img class="legend-mark" src="${MC_SYMBOL_SRC}" alt="" draggable="false">MultiCare occupied${hits.length ? ` (${occ})` : ''}</div>`);
   el.innerHTML = `<h3>Legend</h3>${rows.join('')}`;
 }
 
@@ -903,9 +923,9 @@ function wireControls() {
       setMapStatus('');
     } else fetchViewParcels();
   });
-  bindToggle('#opt-labels', 'showLabels', renderLabels);
+  bindToggle('#opt-labels', 'showLabels', () => { renderLabels(); renderLocations(); });
   bindToggle('#opt-shade', 'shadeMultiCare', restyleAll);
-  bindToggle('#opt-occupied', 'showOccupied', () => { renderLocations(); restyleAll(); });
+  bindToggle('#opt-occupied', 'showOccupied', restyleAll);
   bindToggle('#opt-ringonly', 'ringOnly', restyleAll);
 
   // MultiCare patterns

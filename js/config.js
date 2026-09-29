@@ -50,6 +50,10 @@ export const PARCEL_STYLE = {
   multicareOccupied: { color: CBRE.dataLightBlue, weight: 2 },
 };
 
+// The MultiCare symbol marks MultiCare-occupied parcels and campuses on the map and in the
+// legend. The path is relative to the page; the standalone build inlines it as a data URI.
+export const MC_SYMBOL_SRC = 'assets/multicare-symbol.png';
+
 export const MIN_PARCEL_ZOOM = 15; // parcels in view are fetched at or above this zoom
 export const MAX_RING_RADIUS_M = 8047; // 5 miles: keeps result sets manageable
 

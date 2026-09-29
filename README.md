@@ -27,7 +27,8 @@ self-contained file that can be emailed.
   System and its hospitals, clinics, foundations, and joint ventures (see
   `js/multicare.js`). Owned parcels fill CBRE Green, affiliates and joint ventures fill
   Celadon, and parcels containing a known MultiCare campus (or marked by the user) are
-  flagged *MultiCare occupied* with a blue marker, matching the reference exhibit legend.
+  flagged *MultiCare occupied* with the MultiCare symbol on the parcel's number label; each
+  MultiCare campus is marked with the same symbol, and the legend explains it.
   Extra name fragments can be added in the sidebar.
 - **Table**: ID, True Owner, Legal Owner (deed), Taxable Value, Land AC, Use, Zoning, Last
   Sale, Sale Price, plus optional parcel number, address, and distance columns (each column
@@ -57,7 +58,10 @@ self-contained file that can be emailed.
   `assets/multicare-logo.png` in MultiCare blue for the white footer). `npm run build:single`
   inlines every file in `assets/` into the standalone page. To update a mark, drop the new
   artwork in as the colour file and run `node scripts/reverse-logo.mjs assets/<file>.png`,
-  which trims it and regenerates the reversed variant, then rebuild.
+  which trims it and regenerates the reversed variant, then rebuild. The map marker for
+  MultiCare-occupied parcels is `assets/multicare-symbol.png`, the MultiCare symbol on
+  transparency; `node scripts/reverse-logo.mjs <artwork.png> assets/multicare-symbol.png
+  --no-reversed` rebuilds it, knocking out a white background if the artwork has one.
 - **Placing the pin**: search an address, use *Drop pin on map* and click, or drag the pin
   icon beside that button onto the map (it can be dropped on parcels too). The placed pin
   is draggable.
