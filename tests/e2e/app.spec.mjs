@@ -315,9 +315,11 @@ test.describe('radius study', () => {
     const plain = hits.find((p) => !p.centre && !/multi-?care|pulse/i.test(p.owner));
     const [lon, lat] = plain.ring.slice(0, 4).reduce(([x, y], [a, b]) => [x + a / 4, y + b / 4], [0, 0]);
     const { locations } = JSON.parse(readFileSync(new URL('../../data/multicare_locations.json', import.meta.url), 'utf8'));
-    const spots = [{ lat, lon }, { lat: ALLENMORE.lat + 0.0029, lon: ALLENMORE.lon }];
+    // a third campus shares the first one's parcel (Tacoma General and Mary Bridge are neighbours)
+    const [cornerLon, cornerLat] = plain.ring[0];
+    const spots = [{ lat, lon }, { lat: ALLENMORE.lat + 0.0029, lon: ALLENMORE.lon }, { lat: (lat + cornerLat) / 2, lon: (lon + cornerLon) / 2 }];
     const cache = Object.fromEntries(locations.map((l, i) => [l.address, spots[i] || { lat: 46 + i * 0.01, lon: -120 }]));
-    const [inParcel, onOpenGround] = locations.map((l) => l.name);
+    const [inParcel, onOpenGround, alsoInParcel] = locations.map((l) => l.name);
     await page.addInitScript((c) => localStorage.setItem('mcpm:geocoded_locations', JSON.stringify(c)), cache);
     await page.goto(hashFor());
     await expect(page.locator('table.parcels tbody tr').first()).toBeVisible({ timeout: 20000 });
@@ -339,12 +341,33 @@ test.describe('radius study', () => {
     const campus = page.locator(`.occ-wrap[title="${onOpenGround}"] img.occ-mark`);
     await expect(campus).toHaveCount(1);
     expect(await loaded(campus)).toEqual([true]);
-    await expect(page.locator(`.occ-wrap[title="${inParcel}"]`)).toHaveCount(0);
+    await expect(page.locator(`.occ-wrap[title="${inParcel}"], .occ-wrap[title="${alsoInParcel}"]`)).toHaveCount(0);
     // with numbering off there is no label to carry it, so that campus gets its marker back
     await page.uncheck('#opt-labels');
     await expect(page.locator(`.occ-wrap[title="${inParcel}"] img.occ-mark`)).toHaveCount(1);
     await page.check('#opt-labels');
     await expect(page.locator(`.occ-wrap[title="${inParcel}"]`)).toHaveCount(0);
+    // the parcel names every campus it holds: in the label's hover text, the popup and the CSV
+    const campusLabel = page.locator('.pnum-wrap', { has: page.locator('.pnum.mc-occupied:not(.mc-owned)') });
+    await expect(campusLabel).toHaveAttribute('title', new RegExp(`MultiCare occupied \\(${inParcel}; ${alsoInParcel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)$`));
+    await campusLabel.click();
+    const popup = page.locator('.leaflet-popup .popup');
+    await expect(popup).toContainText('MultiCare campuses');
+    await expect(popup).toContainText(inParcel);
+    await expect(popup).toContainText(alsoInParcel);
+    await expect(popup).toContainText(locations[0].address);
+    await page.locator('.leaflet-popup-close-button').click();
+    const [download] = await Promise.all([page.waitForEvent('download'), page.click('#btn-export')]);
+    const csv = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString('utf8'));
+    expect(csv.split(/\r?\n/)[0]).toContain('MultiCare occupied,MultiCare campus');
+    expect(csv).toContain(`${inParcel}, ${locations[0].address}, ${locations[0].city}`);
+    // the campus name on hover sits above the symbol, not over it
+    await page.locator(`.occ-wrap[title="${onOpenGround}"]`).hover();
+    const tip = page.locator('.leaflet-tooltip');
+    await expect(tip).toContainText(onOpenGround);
+    const [tipBox, plateBox] = [await tip.boundingBox(), await campus.boundingBox()];
+    expect(tipBox.y + tipBox.height).toBeLessThanOrEqual(plateBox.y);
+    await page.mouse.move(5, 5);
     // the legend key is the symbol too; no blue dot is left anywhere
     const key = page.locator('#legend img.legend-mark');
     await expect(key).toBeVisible();
